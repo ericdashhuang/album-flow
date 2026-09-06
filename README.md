@@ -1,12 +1,11 @@
 # Album Flow
 
-Paste a Spotify album or playlist link and see its tracklist, with a computed vibe/energy signal per track.
-The energy graph itself (rendering that signal over the album) is a separate, later phase.
+Paste a Spotify album or playlist link and see its energy arc: a chart of the computed vibe/energy signal across the tracks, plus the tracklist.
 
 ## Project structure
 
 - `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score from 30-second preview clips, and exposes `GET /api/lookup`.
-- `frontend/` - Next.js (App Router) app with a single page: paste a link, see the tracklist.
+- `frontend/` - Next.js (App Router) app with a single page: paste a link, see the energy-arc chart (Recharts) and tracklist.
 - `docker-compose.yml` - local Postgres for backend development.
 
 ## Prerequisites
@@ -56,6 +55,13 @@ npm run dev
 
 The app is now at `http://localhost:3000`.
 It expects the backend to be running at the URL in `NEXT_PUBLIC_API_BASE_URL` (`http://localhost:8000` by default).
+
+Run the frontend test suite (Vitest + React Testing Library):
+
+```bash
+cd frontend
+npm test
+```
 
 ## Known constraints
 

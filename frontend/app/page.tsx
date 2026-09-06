@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import Image from "next/image";
 import styles from "./page.module.css";
 import { formatDuration } from "./format";
+import EnergyArcChart from "./EnergyArcChart";
 import type { LookupResult } from "./types";
 
 const API_BASE_URL =
@@ -93,6 +94,8 @@ export default function Home() {
                 </p>
               </div>
             </div>
+
+            <EnergyArcChart tracks={result.tracks} />
 
             <ol className={styles.trackList}>
               {result.tracks.map((track) => (
