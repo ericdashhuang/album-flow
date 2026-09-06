@@ -17,9 +17,16 @@ def _mock_token(router: respx.MockRouter) -> None:
     )
 
 
+def _mock_reccobeats_no_match(router: respx.MockRouter) -> None:
+    router.get(url__regex=r"https://api\.reccobeats\.com/v1/track\?.*").mock(
+        return_value=Response(200, json={"content": []})
+    )
+
+
 @respx.mock
 def test_lookup_album_returns_clean_tracklist(client):
     _mock_token(respx)
+    _mock_reccobeats_no_match(respx)
     respx.get(f"https://api.spotify.com/v1/albums/{ALBUM_ID}").mock(
         return_value=Response(
             200,
@@ -74,6 +81,7 @@ def test_lookup_album_returns_clean_tracklist(client):
 @respx.mock
 def test_lookup_playlist_skips_null_tracks(client):
     _mock_token(respx)
+    _mock_reccobeats_no_match(respx)
     respx.get(f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}").mock(
         return_value=Response(
             200,
@@ -122,7 +130,10 @@ def test_lookup_playlist_skips_null_tracks(client):
     return_value=VibeFeatures(vibe_score=0.7, energy=0.6, brightness=0.8, tempo_bpm=128.0),
 )
 @patch("app.vibe_service.download_preview_clip", new_callable=AsyncMock, return_value=b"fake-mp3")
-def test_lookup_attaches_vibe_and_caches_across_requests(mock_download, mock_analyze, client):
+@patch("app.vibe_service.get_track_vibe", new_callable=AsyncMock, return_value=None)
+def test_lookup_attaches_vibe_and_caches_across_requests(
+    mock_get_track_vibe, mock_download, mock_analyze, client
+):
     _mock_token(respx)
     album_response = Response(
         200,
