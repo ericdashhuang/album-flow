@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: album_flow
+      POSTGRES_PASSWORD: album_flow
+      POSTGRES_DB: album_flow
+    ports:
+      - "5432:5432"
+    volumes:
+      - album_flow_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  album_flow_postgres_data:

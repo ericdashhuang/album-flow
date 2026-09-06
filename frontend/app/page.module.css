@@ -1,0 +1,162 @@
+.page {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 4rem 1.5rem 6rem;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 640px;
+}
+
+.title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.form {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 1rem;
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+.input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+.error {
+  color: var(--error);
+  font-size: 0.95rem;
+}
+
+.result {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.resultHeader {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-end;
+}
+
+.coverArt {
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  flex-shrink: 0;
+}
+
+.resultTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.resultOwner {
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.resultMeta {
+  color: var(--muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.trackList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+.track {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.65rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.trackNumber {
+  flex-shrink: 0;
+  width: 1.5rem;
+  font-family: var(--font-mono), monospace;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.trackText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.trackName {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackArtist {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackDuration {
+  flex-shrink: 0;
+  font-family: var(--font-mono), monospace;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
