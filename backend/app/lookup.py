@@ -17,10 +17,12 @@ async def _build_album_result(client: SpotifyClient, ref: SpotifyRef) -> LookupR
 
     tracks = [
         TrackOut(
+            spotify_id=item["id"],
             name=item["name"],
             artist=_artist_names(item["artists"]),
             duration_ms=item["duration_ms"],
             track_number=item["track_number"],
+            preview_url=item.get("preview_url"),
         )
         for item in tracks_page["items"]
     ]
@@ -46,10 +48,12 @@ async def _build_playlist_result(client: SpotifyClient, ref: SpotifyRef) -> Look
             continue
         tracks.append(
             TrackOut(
+                spotify_id=track["id"],
                 name=track["name"],
                 artist=_artist_names(track["artists"]),
                 duration_ms=track["duration_ms"],
                 track_number=position,
+                preview_url=track.get("preview_url"),
             )
         )
 
