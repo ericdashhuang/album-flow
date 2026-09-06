@@ -2,9 +2,9 @@ from pydantic import BaseModel
 
 
 class VibeOut(BaseModel):
-    """Computed vibe/energy signal for one track. See app/vibe_analysis.py for
-    how these values are derived and why they're a librosa-based approximation
-    rather than Spotify's (now-unavailable) audio-features.
+    """Computed vibe/energy signal for one track. `source` distinguishes which
+    pipeline produced it - see app/vibe_service.py for the lookup order and
+    app/reccobeats_client.py / app/vibe_analysis.py for how each is derived.
     """
 
     vibe_score: float

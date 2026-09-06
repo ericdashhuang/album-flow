@@ -4,7 +4,7 @@ Paste a Spotify album or playlist link and see its energy arc: a chart of the co
 
 ## Project structure
 
-- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score from 30-second preview clips, and exposes `GET /api/lookup`.
+- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score (primarily via ReccoBeats, falling back to 30-second preview clips when ReccoBeats has no match), and exposes `GET /api/lookup`.
 - `frontend/` - Next.js (App Router) app with a single page: paste a link, see the energy-arc chart (Recharts) and tracklist.
 - `docker-compose.yml` - local Postgres for backend development.
 
@@ -67,8 +67,8 @@ npm test
 
 - No user login: every visitor gets the same experience against public Spotify albums/playlists.
 Spotify's Development Mode quota for new apps makes a personalized-login flow impractical for a solo project.
-- Spotify's `audio-features`/`audio-analysis` endpoints are gone for new apps, so the vibe/energy score is computed independently, from 30-second preview clips, using librosa (RMS energy, spectral centroid, tempo).
-See the docstring at the top of `backend/app/vibe_analysis.py` for why librosa was used instead of Essentia's pretrained mood classifiers, and for exactly what the score does and doesn't capture.
-- A track's `preview_url` is frequently null (Spotify withholds it unpredictably for many tracks).
-When that happens, `vibe` is `null` in the API response for that track instead of failing the whole lookup.
-- Computed vibes are cached in Postgres by Spotify track ID (`TrackVibe` in `backend/app/models.py`), so the same track is never re-analyzed across different album/playlist lookups.
+- Spotify's `audio-features`/`audio-analysis` endpoints are gone for new apps, so the vibe/energy score comes from ReccoBeats (a free, keyless third-party API - see `backend/app/reccobeats_client.py`) as the primary source, with the original 30-second-preview-clip-plus-librosa analysis (`backend/app/vibe_analysis.py`) kept as a fallback for whenever ReccoBeats has no data for a track.
+ReccoBeats became primary because a track's `preview_url` has turned out to be null far more often in practice than originally assumed - real-world testing across several major albums found zero available preview clips - so the preview-dependent path alone was no longer a reliable primary source.
+See the docstring at the top of `backend/app/reccobeats_client.py` for the exact API contract and field-mapping rationale, and `backend/app/vibe_analysis.py` for why librosa was used for the fallback instead of Essentia's pretrained mood classifiers.
+- If both ReccoBeats and the preview+librosa fallback come up empty for a track, `vibe` is `null` in the API response for that track instead of failing the whole lookup.
+- Computed vibes are cached in Postgres by Spotify track ID (`TrackVibe` in `backend/app/models.py`), so the same track is never re-analyzed across different album/playlist lookups, regardless of which source produced it.
