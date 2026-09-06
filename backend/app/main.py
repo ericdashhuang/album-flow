@@ -18,6 +18,7 @@ from app.spotify_client import (
     SpotifyRateLimitedError,
 )
 from app.url_parsing import InvalidSpotifyUrlError, parse_spotify_reference
+from app.vibe_service import get_or_compute_vibe
 
 
 @asynccontextmanager
@@ -58,6 +59,9 @@ async def lookup(
         result = await build_lookup_result(client, ref)
     finally:
         await client.aclose()
+
+    for track in result.tracks:
+        track.vibe = await get_or_compute_vibe(session, track.spotify_id, track.preview_url)
 
     session.add(
         LookupLog(item_type=result.item_type, spotify_id=result.spotify_id, name=result.name)

@@ -1,12 +1,11 @@
 # Album Flow
 
-Paste a Spotify album or playlist link and see its tracklist.
-This is the initial scaffold: URL lookup and tracklist display only.
-Audio/energy analysis is a separate, later phase.
+Paste a Spotify album or playlist link and see its tracklist, with a computed vibe/energy signal per track.
+The energy graph itself (rendering that signal over the album) is a separate, later phase.
 
 ## Project structure
 
-- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login) and exposes `GET /api/lookup`.
+- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score from 30-second preview clips, and exposes `GET /api/lookup`.
 - `frontend/` - Next.js (App Router) app with a single page: paste a link, see the tracklist.
 - `docker-compose.yml` - local Postgres for backend development.
 
@@ -62,5 +61,8 @@ It expects the backend to be running at the URL in `NEXT_PUBLIC_API_BASE_URL` (`
 
 - No user login: every visitor gets the same experience against public Spotify albums/playlists.
 Spotify's Development Mode quota for new apps makes a personalized-login flow impractical for a solo project.
-- Spotify's `audio-features`/`audio-analysis` endpoints are gone for new apps, so this scaffold does not (and cannot) compute an energy/vibe score yet.
-That's deliberately a separate, later task.
+- Spotify's `audio-features`/`audio-analysis` endpoints are gone for new apps, so the vibe/energy score is computed independently, from 30-second preview clips, using librosa (RMS energy, spectral centroid, tempo).
+See the docstring at the top of `backend/app/vibe_analysis.py` for why librosa was used instead of Essentia's pretrained mood classifiers, and for exactly what the score does and doesn't capture.
+- A track's `preview_url` is frequently null (Spotify withholds it unpredictably for many tracks).
+When that happens, `vibe` is `null` in the API response for that track instead of failing the whole lookup.
+- Computed vibes are cached in Postgres by Spotify track ID (`TrackVibe` in `backend/app/models.py`), so the same track is never re-analyzed across different album/playlist lookups.
