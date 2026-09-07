@@ -18,15 +18,10 @@
   gap: 0.75rem;
 }
 
-.itemUnlocked,
-.itemLocked {
+.item {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-}
-
-.itemLocked {
-  opacity: 0.5;
 }
 
 .term {

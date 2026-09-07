@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import GameChart, { buildChartData } from "./GameChart";
 import type { HintPoint, RevealedMetric } from "./types";
 
@@ -82,5 +82,45 @@ describe("GameChart", () => {
 
     expect(danceabilityTab).toHaveAttribute("aria-selected", "true");
     expect(vibeTab).toHaveAttribute("aria-selected", "false");
+  });
+
+  test("auto-switches the active tab to a newly revealed metric", async () => {
+    const { rerender } = render(<GameChart hints={hints} revealedMetrics={[]} />);
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+
+    rerender(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /danceability/i })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    );
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+      "aria-selected",
+      "false"
+    );
+  });
+
+  test("does not auto-switch away from a manually selected tab until a new metric arrives", async () => {
+    const { rerender } = render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
+
+    // Player manually switches back to vibe score after danceability unlocked.
+    fireEvent.click(screen.getByRole("tab", { name: /vibe score/i }));
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+
+    // Re-rendering with an equal-length revealedMetrics array (a new
+    // reference, but no *new* metric) must not snap the tab back.
+    rerender(<GameChart hints={hints} revealedMetrics={[...revealedMetrics]} />);
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
   });
 });
