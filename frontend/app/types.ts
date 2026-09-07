@@ -4,6 +4,13 @@ export interface Vibe {
   brightness: number;
   tempo_bpm: number;
   source: string;
+  danceability?: number | null;
+  acousticness?: number | null;
+  instrumentalness?: number | null;
+  speechiness?: number | null;
+  loudness?: number | null;
+  key?: number | null;
+  mode?: number | null;
 }
 
 export interface Track {
@@ -23,4 +30,98 @@ export interface LookupResult {
   owner: string;
   cover_art_url: string | null;
   tracks: Track[];
+}
+
+// --- Album-guessing game -----------------------------------------------------
+
+// Metric keys revealed one at a time as guesses go wrong, in reveal order.
+// "vibeScore" is the always-visible base line and is not part of this list.
+export type HintMetric =
+  | "danceability"
+  | "acousticness"
+  | "instrumentalness"
+  | "speechiness"
+  | "loudness"
+  | "key";
+
+export const HINT_METRIC_ORDER: HintMetric[] = [
+  "danceability",
+  "acousticness",
+  "instrumentalness",
+  "speechiness",
+  "loudness",
+  "key",
+];
+
+export const METRIC_DESCRIPTIONS: Record<HintMetric | "vibe_score", string> = {
+  vibe_score:
+    "A 0-1 blend of energy and musical positiveness (valence) - the core \"how hype vs. mellow\" signal.",
+  danceability:
+    "How suitable the track is for dancing, based on rhythm and beat regularity.",
+  acousticness:
+    "How acoustic/organic the track sounds versus produced/electronic.",
+  instrumentalness: "How likely the track has no vocals.",
+  speechiness: "How much of the track is spoken word versus sung.",
+  loudness: "Overall loudness of the track, in decibels.",
+  key: "The track's musical key and whether it's major or minor.",
+};
+
+export interface AlbumOption {
+  spotify_id: string;
+  name: string;
+}
+
+export interface HintPoint {
+  track_number: number;
+  vibe_score: number | null;
+}
+
+export interface StartRoundResponse {
+  round_id: string;
+  artist_name: string;
+  album_options: AlbumOption[];
+  track_count: number;
+  hints: HintPoint[];
+}
+
+export interface MetricPoint {
+  track_number: number;
+  value: number | null;
+  mode: number | null;
+}
+
+export interface RevealedMetric {
+  metric: HintMetric;
+  data: MetricPoint[];
+}
+
+export interface GuessResponse {
+  correct: boolean;
+  wrong_guess_count: number;
+  newly_revealed_metric: RevealedMetric | null;
+}
+
+export interface RevealedTrack {
+  track_number: number;
+  name: string;
+  vibe_score: number | null;
+  danceability?: number | null;
+  acousticness?: number | null;
+  instrumentalness?: number | null;
+  speechiness?: number | null;
+  loudness?: number | null;
+  key?: number | null;
+  mode?: number | null;
+}
+
+export interface RevealResponse {
+  album_name: string;
+  album_image_url: string | null;
+  artist_name: string;
+  tracks: RevealedTrack[];
+  revealed_metrics: HintMetric[];
+}
+
+export interface ApiError {
+  detail: string;
 }

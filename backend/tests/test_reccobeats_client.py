@@ -24,6 +24,12 @@ def test_match_returns_mapped_features():
                 "valence": 0.3,
                 "tempo": 140.0,
                 "danceability": 0.5,
+                "acousticness": 0.2,
+                "instrumentalness": 0.05,
+                "speechiness": 0.04,
+                "loudness": -6.5,
+                "key": 7,
+                "mode": 1,
             },
         )
     )
@@ -36,6 +42,13 @@ def test_match_returns_mapped_features():
         "brightness": 0.3,
         "tempo_bpm": 140.0,
         "source": "reccobeats",
+        "danceability": 0.5,
+        "acousticness": 0.2,
+        "instrumentalness": 0.05,
+        "speechiness": 0.04,
+        "loudness": -6.5,
+        "key": 7,
+        "mode": 1,
     }
 
 

@@ -20,7 +20,7 @@ const jetBrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Album Flow",
-  description: "Paste a Spotify album or playlist link to see its tracklist.",
+  description: "Guess the album from its unlabeled vibe chart, one track at a time.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

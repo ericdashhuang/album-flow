@@ -179,6 +179,13 @@ def test_lookup_attaches_vibe_and_caches_across_requests(
             "brightness": 0.8,
             "tempo_bpm": 128.0,
             "source": "librosa_fallback",
+            "danceability": None,
+            "acousticness": None,
+            "instrumentalness": None,
+            "speechiness": None,
+            "loudness": None,
+            "key": None,
+            "mode": None,
         }
 
     mock_download.assert_awaited_once()

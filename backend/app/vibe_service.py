@@ -36,6 +36,13 @@ def _to_vibe_out(row: TrackVibe) -> VibeOut:
         brightness=row.brightness,
         tempo_bpm=row.tempo_bpm,
         source=row.source,
+        danceability=row.danceability,
+        acousticness=row.acousticness,
+        instrumentalness=row.instrumentalness,
+        speechiness=row.speechiness,
+        loudness=row.loudness,
+        key=row.key,
+        mode=row.mode,
     )
 
 
