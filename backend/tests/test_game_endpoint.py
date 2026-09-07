@@ -188,6 +188,7 @@ def test_start_round_for_artist_with_too_few_albums_returns_422(client):
             },
         )
     )
+    _mock_album_tracks(respx, "only-one", [{"id": "t1", "name": "Song One"}])
 
     response = client.post("/api/game/rounds", json={"artist_name": "Test Artist"})
 

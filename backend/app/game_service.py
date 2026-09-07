@@ -21,6 +21,7 @@ ReccoBeats round trips into a many-seconds-long request that looked hung to
 an end user. See vibe_service.get_or_compute_vibes_bulk's docstring.
 """
 
+import asyncio
 import json
 import random
 import re
@@ -100,9 +101,20 @@ class SpotifyClientProtocol(Protocol):
 # perfect classifier, but it removes the worst, most obviously-non-studio
 # offenders. `|` is a strong signal of a compilation-style title (observed:
 # "Daft Punk | Random Access Memories | The Collaborators").
+#
+# This same pattern list is also checked against each candidate album's own
+# TRACK names (see _filter_out_albums_with_non_studio_tracks) - some editions
+# give no hint in the album title itself. Confirmed live for Radiohead:
+# "I Might Be Wrong" is their actual live album, but the title alone has no
+# live-related keyword - every track is titled "<Song> - Live in <City>".
+# "remaster" is here for the same reason: "OK Computer OKNOTOK 1997 2017"'s
+# title doesn't say so, but nearly every track is "<Song> - Remastered".
 _NON_STUDIO_NAME_PATTERNS = (
     "live",  # also matches stylized "Alive 1997/2007", which are live albums
     "remix",
+    "rmx",
+    "rework",
+    "remaster",
     "anniversary",
     "reconfigured",
     "deluxe",
@@ -145,10 +157,34 @@ def _dedupe_albums_by_base_name(items: list[dict]) -> list[dict]:
     return [best_by_key[key] for key in order]
 
 
+async def _filter_out_albums_with_non_studio_tracks(
+    client: SpotifyClientProtocol, albums: list[dict]
+) -> list[dict]:
+    """Album-title filtering alone misses editions whose own name gives no
+    hint (see _NON_STUDIO_NAME_PATTERNS' docstring - "I Might Be Wrong").
+    Fetches each remaining candidate's tracklist - concurrently, to avoid
+    reintroducing the sequential-network-call slowdown fixed in
+    vibe_service.get_or_compute_vibes_bulk - and excludes any album where at
+    least one track name matches the same exclude patterns."""
+    if not albums:
+        return albums
+
+    track_pages = await asyncio.gather(*(client.get_album_tracks(album["id"]) for album in albums))
+
+    kept = []
+    for album, tracks_page in zip(albums, track_pages):
+        track_names = [item["name"] for item in tracks_page.get("items", [])]
+        if any(_looks_like_non_studio_edition(name) for name in track_names):
+            continue
+        kept.append(album)
+    return kept
+
+
 async def _fetch_real_albums(client: SpotifyClientProtocol, artist_id: str) -> list[dict]:
     page = await client.get_artist_albums(artist_id)
     albums = [item for item in page.get("items", []) if item.get("album_type") == "album"]
     albums = [item for item in albums if not _looks_like_non_studio_edition(item["name"])]
+    albums = await _filter_out_albums_with_non_studio_tracks(client, albums)
     return _dedupe_albums_by_base_name(albums)
 
 
