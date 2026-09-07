@@ -1,3 +1,4 @@
+import asyncio
 import time
 from urllib.parse import quote
 
@@ -10,6 +11,26 @@ API_BASE = "https://api.spotify.com/v1"
 
 # Refresh a little before actual expiry to avoid racing a request against the deadline.
 _EXPIRY_SAFETY_MARGIN_SECONDS = 30
+
+# A 429 from Spotify is retried this many times (the initial attempt plus
+# this many extra tries) before giving up and raising SpotifyRateLimitedError.
+# Confirmed live: Spotify's real rate limit here is short-lived and trips on
+# request *bursts* (see game_service._filter_out_albums_with_non_studio_tracks),
+# not a sustained multi-hour block - a single retry after backing off almost
+# always succeeds.
+_MAX_RATE_LIMIT_RETRIES = 3
+
+# Used only when a 429 response has no Retry-After header.
+_DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 2.0
+
+# Retry-After is honored as-is up to this ceiling. Confirmed live: a 429
+# triggered on a request pattern Spotify treats as abusive (e.g. the same
+# request retried repeatedly with no backoff) can carry a Retry-After in the
+# tens of thousands of seconds - sleeping that long inside a request handler
+# would hang it for hours, which is worse for users than surfacing the error.
+# The short-lived burst limit this retry exists for reports a Retry-After of
+# at most a few seconds, well under this ceiling.
+_MAX_RATE_LIMIT_BACKOFF_SECONDS = 10.0
 
 
 class SpotifyApiError(Exception):
@@ -73,19 +94,35 @@ class SpotifyClient:
         response.raise_for_status()
         return response.json()
 
-    async def _get(self, path: str) -> dict:
+    async def _get_with_retry(self, url: str, description: str) -> dict:
+        """GET `url` (already fully qualified), retrying a 429 up to
+        _MAX_RATE_LIMIT_RETRIES times. This is the single choke point for
+        every outgoing Spotify request (both `_get` and `_get_absolute` route
+        through it) specifically so a concurrent burst of calls - such as
+        game_service's per-album tracklist fetch - benefits from the same
+        backoff as any other call, not just its own call site."""
         token = await self._get_access_token()
-        response = await self._http.get(
-            f"{API_BASE}{path}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        return await self._handle_response(response, path)
+        for attempt in range(1, _MAX_RATE_LIMIT_RETRIES + 1):
+            response = await self._http.get(url, headers={"Authorization": f"Bearer {token}"})
+            try:
+                return await self._handle_response(response, description)
+            except SpotifyRateLimitedError as exc:
+                if attempt == _MAX_RATE_LIMIT_RETRIES:
+                    raise
+                delay = (
+                    min(exc.retry_after_seconds, _MAX_RATE_LIMIT_BACKOFF_SECONDS)
+                    if exc.retry_after_seconds is not None
+                    else _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+                )
+                await asyncio.sleep(delay)
+        raise AssertionError("unreachable")  # loop always returns or raises above
+
+    async def _get(self, path: str) -> dict:
+        return await self._get_with_retry(f"{API_BASE}{path}", path)
 
     async def _get_absolute(self, url: str) -> dict:
         """Follow a full URL from a paginated response's `next` field."""
-        token = await self._get_access_token()
-        response = await self._http.get(url, headers={"Authorization": f"Bearer {token}"})
-        return await self._handle_response(response, url)
+        return await self._get_with_retry(url, url)
 
     async def get_album(self, album_id: str) -> dict:
         return await self._get(f"/albums/{album_id}")
