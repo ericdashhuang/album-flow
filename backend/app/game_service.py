@@ -41,6 +41,16 @@ MIN_ALBUMS_FOR_ROUND = 3
 # enough computed vibe data to make a decent puzzle.
 MAX_TARGET_ATTEMPTS = 3
 
+# Caps how many Spotify tracklist requests _filter_out_albums_with_non_studio_tracks
+# fires at once. An artist with a normal-sized catalog (Radiohead-scale, ~15-20
+# studio albums after filtering) firing one request per album with no cap was
+# enough to trip Spotify's real short-window rate limit on every round-start -
+# confirmed live. SpotifyClient retries a single 429'd request on its own
+# (see spotify_client.py), but that doesn't help if the burst itself is what
+# causes the 429s; keeping the number of simultaneous requests small avoids
+# tripping the limit in the first place.
+_MAX_CONCURRENT_ALBUM_TRACK_FETCHES = 4
+
 # An album qualifies as a target only if at least this fraction of its
 # tracks have some computed vibe data (from either ReccoBeats or librosa).
 MIN_VIBE_COVERAGE = 0.5
@@ -162,14 +172,22 @@ async def _filter_out_albums_with_non_studio_tracks(
 ) -> list[dict]:
     """Album-title filtering alone misses editions whose own name gives no
     hint (see _NON_STUDIO_NAME_PATTERNS' docstring - "I Might Be Wrong").
-    Fetches each remaining candidate's tracklist - concurrently, to avoid
-    reintroducing the sequential-network-call slowdown fixed in
-    vibe_service.get_or_compute_vibes_bulk - and excludes any album where at
-    least one track name matches the same exclude patterns."""
+    Fetches each remaining candidate's tracklist concurrently, capped at
+    _MAX_CONCURRENT_ALBUM_TRACK_FETCHES at a time, to avoid both reintroducing
+    the sequential-network-call slowdown fixed in
+    vibe_service.get_or_compute_vibes_bulk and tripping Spotify's rate limit
+    by firing an unbounded burst of simultaneous requests - excludes any
+    album where at least one track name matches the same exclude patterns."""
     if not albums:
         return albums
 
-    track_pages = await asyncio.gather(*(client.get_album_tracks(album["id"]) for album in albums))
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_ALBUM_TRACK_FETCHES)
+
+    async def _fetch(album: dict) -> dict:
+        async with semaphore:
+            return await client.get_album_tracks(album["id"])
+
+    track_pages = await asyncio.gather(*(_fetch(album) for album in albums))
 
     kept = []
     for album, tracks_page in zip(albums, track_pages):
