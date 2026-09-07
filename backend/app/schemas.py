@@ -57,7 +57,17 @@ class LookupResult(BaseModel):
 
 
 class StartRoundRequest(BaseModel):
-    artist_name: str
+    # `artist_spotify_id` (set when the player picked a suggestion from the
+    # autocomplete dropdown) takes priority over `artist_name` when both are
+    # present - see game_service.start_round. At least one must be set.
+    artist_name: str | None = None
+    artist_spotify_id: str | None = None
+
+
+class ArtistSuggestion(BaseModel):
+    spotify_id: str
+    name: str
+    image_url: str | None = None
 
 
 class AlbumOption(BaseModel):
@@ -96,6 +106,10 @@ class RevealedMetric(BaseModel):
 class GuessResponse(BaseModel):
     correct: bool
     wrong_guess_count: int
+    # Authoritative, cumulative list of every album ID guessed wrong so far
+    # this round - the frontend should render eliminated options from this,
+    # not from its own accumulated local state.
+    eliminated_album_ids: list[str]
     newly_revealed_metric: RevealedMetric | None = None
 
 

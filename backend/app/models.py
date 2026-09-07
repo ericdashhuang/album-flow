@@ -57,6 +57,7 @@ class GameRound(SQLModel, table=True):
     target_album_image_url: str | None = None
     tracks_json: str
     album_options_json: str
+    eliminated_album_ids_json: str = "[]"
     wrong_guess_count: int = 0
     revealed_hint_level: int = 0
     solved: bool = False

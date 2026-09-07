@@ -4,11 +4,50 @@
   gap: 0.75rem;
 }
 
-.chart {
+.toggleRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.toggle,
+.toggleActive {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.toggleActive {
+  color: var(--foreground);
+  font-weight: 600;
+  border-width: 2px;
+}
+
+.toggleSwatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.scrollArea {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
   padding: 1rem 0.75rem 0.5rem;
+  overflow-x: auto;
+}
+
+.pointLabel {
+  fill: var(--muted);
+  font-size: 10px;
 }
 
 .tooltip {
@@ -40,27 +79,5 @@
   flex-shrink: 0;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-}
-
-.legend {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-}
-
-.legendItem {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  color: var(--foreground);
-}
-
-.legendSwatch {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
   border-radius: 50%;
 }

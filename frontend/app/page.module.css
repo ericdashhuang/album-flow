@@ -8,7 +8,20 @@
 .main {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 1.5rem;
+  width: 100%;
+}
+
+.header {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.headerWidth {
   width: 100%;
   max-width: 640px;
 }
@@ -27,23 +40,6 @@
 .form {
   display: flex;
   gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.input {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--foreground);
-  font-size: 1rem;
-  font-family: var(--font-body), system-ui, sans-serif;
-}
-
-.input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .button {
@@ -88,11 +84,26 @@
   font-size: 0.95rem;
 }
 
-.result {
-  margin-top: 1rem;
+.gameLayout {
+  width: 100%;
+  max-width: 1000px;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 820px) {
+  .gameLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gameMain {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-width: 0;
 }
 
 .resultHeader {
@@ -198,33 +209,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.glossary {
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
-}
-
-.glossaryTitle {
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-}
-
-.glossaryList {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.35rem 1rem;
-}
-
-.glossaryTerm {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.glossaryDescription {
-  color: var(--muted);
-  font-size: 0.9rem;
 }
 
 .playAgainRow {

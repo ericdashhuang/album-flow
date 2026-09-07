@@ -132,14 +132,18 @@ def test_round_lifecycle_never_leaks_target_before_reveal(client):
     wrong_1_body = wrong_1.json()
     assert wrong_1_body["correct"] is False
     assert wrong_1_body["newly_revealed_metric"] is None
+    assert wrong_1_body["eliminated_album_ids"] == [ALBUM_B]
     for name in SECRET_TRACK_NAMES:
         assert name not in json.dumps(wrong_1_body)
 
-    # Wrong guess #2: crosses the first hint threshold (danceability), still no leakage.
+    # Wrong guess #2: crosses the first hint threshold (danceability), still no leakage,
+    # and both wrong guesses so far remain eliminated (regression: a prior bug only
+    # reported the most recently guessed album).
     wrong_2 = client.post(f"/api/game/rounds/{round_id}/guess", json={"album_spotify_id": ALBUM_C})
     assert wrong_2.status_code == 200
     wrong_2_body = wrong_2.json()
     assert wrong_2_body["wrong_guess_count"] == 2
+    assert set(wrong_2_body["eliminated_album_ids"]) == {ALBUM_B, ALBUM_C}
     assert wrong_2_body["newly_revealed_metric"]["metric"] == "danceability"
     raw_wrong_2 = json.dumps(wrong_2_body)
     for name in SECRET_TRACK_NAMES:
@@ -201,3 +205,98 @@ def test_start_round_for_unknown_artist_returns_404(client):
     response = client.post("/api/game/rounds", json={"artist_name": "Nobody At All"})
 
     assert response.status_code == 404
+
+
+@respx.mock
+@patch("app.game_service.random.shuffle", lambda seq: None)
+def test_start_round_filters_out_non_studio_editions(client):
+    _mock_token(respx)
+    _mock_search(respx)
+    respx.get(url__regex=rf"https://api\.spotify\.com/v1/artists/{ARTIST_ID}/albums.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "ram-anniv",
+                        "name": "Random Access Memories (10th Anniversary Edition)",
+                        "album_type": "album",
+                        "images": [],
+                    },
+                    {"id": "homework", "name": "Homework", "album_type": "album", "images": []},
+                    {
+                        "id": "ram",
+                        "name": "Random Access Memories",
+                        "album_type": "album",
+                        "images": [],
+                    },
+                    {"id": "discovery", "name": "Discovery", "album_type": "album", "images": []},
+                    {
+                        "id": "alive-2007",
+                        "name": "Alive 2007",
+                        "album_type": "album",
+                        "images": [],
+                    },
+                ]
+            },
+        )
+    )
+    for album_id in ("homework", "ram", "discovery"):
+        _mock_album_tracks(respx, album_id, [{"id": f"{album_id}-t1", "name": "Track"}])
+    _mock_reccobeats_any(respx)
+
+    response = client.post("/api/game/rounds", json={"artist_name": "Test Artist"})
+
+    assert response.status_code == 200
+    option_names = {option["name"] for option in response.json()["album_options"]}
+    assert option_names == {"Homework", "Random Access Memories", "Discovery"}
+
+
+@respx.mock
+def test_search_artists_endpoint_returns_name_and_image(client):
+    _mock_token(respx)
+    respx.get(url__regex=r"https://api\.spotify\.com/v1/search\?.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "artists": {
+                    "items": [
+                        {
+                            "id": "kanye-id",
+                            "name": "Kanye West",
+                            "images": [{"url": "https://example.com/kanye.jpg"}],
+                        }
+                    ]
+                }
+            },
+        )
+    )
+
+    response = client.get("/api/game/artists", params={"q": "kan"})
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"spotify_id": "kanye-id", "name": "Kanye West", "image_url": "https://example.com/kanye.jpg"}
+    ]
+
+
+@respx.mock
+@patch("app.game_service.random.shuffle", lambda seq: None)
+def test_start_round_accepts_artist_spotify_id(client):
+    _mock_token(respx)
+    respx.get(f"https://api.spotify.com/v1/artists/{ARTIST_ID}").mock(
+        return_value=Response(200, json={"id": ARTIST_ID, "name": "Test Artist"})
+    )
+    _mock_albums(respx)
+    for album_id, tracks in (
+        (ALBUM_TARGET, [{"id": "t1", "name": "Track"}]),
+        (ALBUM_B, [{"id": "b1", "name": "B Track"}]),
+        (ALBUM_C, [{"id": "c1", "name": "C Track"}]),
+    ):
+        _mock_album_tracks(respx, album_id, tracks)
+    _mock_reccobeats_any(respx)
+
+    response = client.post("/api/game/rounds", json={"artist_spotify_id": ARTIST_ID})
+
+    assert response.status_code == 200
+    assert response.json()["artist_name"] == "Test Artist"

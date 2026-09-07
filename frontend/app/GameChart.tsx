@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   CartesianGrid,
   Label,
@@ -11,8 +12,18 @@ import {
   YAxis,
 } from "recharts";
 import type { HintMetric, HintPoint, RevealedMetric } from "./types";
-import { formatMetricValue, METRIC_COLORS, METRIC_LABELS, normalizeMetricValue } from "./metrics";
+import {
+  ALL_METRIC_LABELS,
+  formatMetricAxisTick,
+  formatMetricValue,
+  METRIC_COLORS,
+  METRIC_Y_DOMAIN,
+  type ChartMetric,
+} from "./metrics";
 import styles from "./GameChart.module.css";
+
+const PX_PER_TRACK = 76;
+const MIN_CHART_WIDTH = 480;
 
 export interface ChartDataPoint {
   trackNumber: number;
@@ -51,15 +62,48 @@ export function buildChartData(
   return Array.from(points.values()).sort((a, b) => a.trackNumber - b.trackNumber);
 }
 
-function metricAccessor(metric: HintMetric) {
-  return (point: ChartDataPoint): number | null => {
-    const raw = point.metricValues[metric];
-    return raw === undefined || raw === null ? null : normalizeMetricValue(metric, raw);
-  };
+function valueForMetric(point: ChartDataPoint, metric: ChartMetric): number | null {
+  if (metric === "vibe_score") {
+    return point.vibeScore;
+  }
+  const raw = point.metricValues[metric];
+  return raw === undefined ? null : raw;
+}
+
+function modeForMetric(point: ChartDataPoint, metric: ChartMetric): number | null {
+  if (metric === "key") {
+    return point.metricModes.key ?? null;
+  }
+  return null;
+}
+
+function truncateTitle(title: string, max = 14): string {
+  return title.length > max ? `${title.slice(0, max - 1)}…` : title;
+}
+
+interface PointLabelProps {
+  x?: number;
+  y?: number;
+  index?: number;
+  data: ChartDataPoint[];
+}
+
+function TrackTitleLabel({ x, y, index, data }: PointLabelProps) {
+  if (x === undefined || y === undefined || index === undefined) {
+    return null;
+  }
+  const name = data[index]?.name;
+  if (!name) {
+    return null;
+  }
+  return (
+    <text x={x} y={y - 12} textAnchor="middle" className={styles.pointLabel}>
+      {truncateTitle(name)}
+    </text>
+  );
 }
 
 interface TooltipPayloadEntry {
-  dataKey?: string | ((point: ChartDataPoint) => number | null);
   value?: number | null;
   payload?: ChartDataPoint;
 }
@@ -68,9 +112,10 @@ interface ChartTooltipProps {
   active?: boolean;
   label?: number;
   payload?: readonly TooltipPayloadEntry[];
+  metric: ChartMetric;
 }
 
-function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
+function ChartTooltip({ active, label, payload, metric }: ChartTooltipProps) {
   if (!active || !payload || payload.length === 0) {
     return null;
   }
@@ -78,28 +123,16 @@ function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
   if (!point) {
     return null;
   }
+  const value = valueForMetric(point, metric);
 
   return (
     <div className={styles.tooltip}>
       <p className={styles.tooltipTrack}>{point.name ?? `Track ${label}`}</p>
-      {point.vibeScore !== null && (
-        <p className={styles.tooltipRow}>
-          <span className={styles.tooltipSwatch} style={{ background: "var(--accent)" }} />
-          Vibe score: {point.vibeScore.toFixed(2)}
-        </p>
-      )}
-      {(Object.keys(point.metricValues) as HintMetric[]).map((metric) => {
-        const value = point.metricValues[metric];
-        if (value === null || value === undefined) {
-          return null;
-        }
-        return (
-          <p key={metric} className={styles.tooltipRow}>
-            <span className={styles.tooltipSwatch} style={{ background: METRIC_COLORS[metric] }} />
-            {METRIC_LABELS[metric]}: {formatMetricValue(metric, value, point.metricModes[metric])}
-          </p>
-        );
-      })}
+      <p className={styles.tooltipRow}>
+        <span className={styles.tooltipSwatch} style={{ background: METRIC_COLORS[metric] }} />
+        {ALL_METRIC_LABELS[metric]}:{" "}
+        {value === null ? "No data" : formatMetricValue(metric, value, modeForMetric(point, metric))}
+      </p>
     </div>
   );
 }
@@ -111,80 +144,76 @@ interface GameChartProps {
 }
 
 export default function GameChart({ hints, revealedMetrics, trackNames }: GameChartProps) {
+  const availableMetrics: ChartMetric[] = ["vibe_score", ...revealedMetrics.map((m) => m.metric)];
+  const [selectedMetric, setSelectedMetric] = useState<ChartMetric>("vibe_score");
+  const activeMetric = availableMetrics.includes(selectedMetric) ? selectedMetric : "vibe_score";
+
   const data = buildChartData(hints, revealedMetrics, trackNames);
+  const chartWidth = Math.max(MIN_CHART_WIDTH, data.length * PX_PER_TRACK);
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.chart} data-testid="game-chart">
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={data} margin={{ top: 12, right: 16, left: 4, bottom: 24 }}>
-            <CartesianGrid stroke="var(--border)" vertical={false} />
-            <XAxis
-              dataKey="trackNumber"
-              tickFormatter={(value: number) => `Track ${value}`}
-              tick={{ fill: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}
-              axisLine={{ stroke: "var(--border)" }}
-              tickLine={false}
-            />
-            <YAxis
-              domain={[0, 1]}
-              tick={{ fill: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              width={40}
-            >
-              <Label
-                value="Vibe score (0 = mellow, 1 = high-energy)"
-                angle={-90}
-                position="insideLeft"
-                style={{ fill: "var(--muted)", fontSize: 11, textAnchor: "middle" }}
+      <div className={styles.toggleRow} role="tablist" aria-label="Chart metric">
+        {availableMetrics.map((metric) => (
+          <button
+            key={metric}
+            type="button"
+            role="tab"
+            aria-selected={metric === activeMetric}
+            className={metric === activeMetric ? styles.toggleActive : styles.toggle}
+            style={metric === activeMetric ? { borderColor: METRIC_COLORS[metric] } : undefined}
+            onClick={() => setSelectedMetric(metric)}
+          >
+            <span className={styles.toggleSwatch} style={{ background: METRIC_COLORS[metric] }} />
+            {ALL_METRIC_LABELS[metric]}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.scrollArea} data-testid="game-chart">
+        <div style={{ width: chartWidth }}>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={data} margin={{ top: 28, right: 48, left: 40, bottom: 8 }}>
+              <CartesianGrid stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="trackNumber"
+                interval={0}
+                tickFormatter={(value: number) => `Track ${value}`}
+                tick={{ fill: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+                axisLine={{ stroke: "var(--border)" }}
+                tickLine={false}
               />
-            </YAxis>
-            <Tooltip content={<ChartTooltip />} />
-            <Line
-              type="monotone"
-              dataKey="vibeScore"
-              name="Vibe score"
-              stroke="var(--accent)"
-              strokeWidth={2}
-              dot={{ r: 3, fill: "var(--accent)" }}
-              activeDot={{ r: 5 }}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-            {revealedMetrics.map((entry) => (
+              <YAxis
+                domain={METRIC_Y_DOMAIN[activeMetric] ?? ["auto", "auto"]}
+                tickFormatter={(value: number) => formatMetricAxisTick(activeMetric, value)}
+                tick={{ fill: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                width={48}
+              >
+                <Label
+                  value={ALL_METRIC_LABELS[activeMetric]}
+                  angle={-90}
+                  position="insideLeft"
+                  style={{ fill: "var(--muted)", fontSize: 11, textAnchor: "middle" }}
+                />
+              </YAxis>
+              <Tooltip content={<ChartTooltip metric={activeMetric} />} />
               <Line
-                key={entry.metric}
                 type="monotone"
-                dataKey={metricAccessor(entry.metric)}
-                name={METRIC_LABELS[entry.metric]}
-                stroke={METRIC_COLORS[entry.metric]}
+                dataKey={(point: ChartDataPoint) => valueForMetric(point, activeMetric)}
+                stroke={METRIC_COLORS[activeMetric]}
                 strokeWidth={2}
-                dot={{ r: 3 }}
+                dot={{ r: 3, fill: METRIC_COLORS[activeMetric] }}
                 activeDot={{ r: 5 }}
                 connectNulls={false}
                 isAnimationActive={false}
+                label={<TrackTitleLabel data={data} />}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
-
-      <ul className={styles.legend} data-testid="game-chart-legend">
-        <li className={styles.legendItem}>
-          <span className={styles.legendSwatch} style={{ background: "var(--accent)" }} />
-          Vibe score
-        </li>
-        {revealedMetrics.map((entry) => (
-          <li key={entry.metric} className={styles.legendItem}>
-            <span
-              className={styles.legendSwatch}
-              style={{ background: METRIC_COLORS[entry.metric] }}
-            />
-            {METRIC_LABELS[entry.metric]}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

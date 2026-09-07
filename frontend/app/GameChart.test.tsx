@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import GameChart, { buildChartData } from "./GameChart";
 import type { HintPoint, RevealedMetric } from "./types";
 
@@ -56,18 +56,31 @@ describe("buildChartData", () => {
 });
 
 describe("GameChart", () => {
-  test("renders the chart with just the base vibe-score line", () => {
+  test("renders only the base vibe-score toggle when no metric is revealed yet", () => {
     render(<GameChart hints={hints} revealedMetrics={[]} />);
     expect(screen.getByTestId("game-chart")).toBeInTheDocument();
-    const legend = screen.getByTestId("game-chart-legend");
-    expect(legend).toHaveTextContent("Vibe score");
-    expect(legend).not.toHaveTextContent("Danceability");
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /danceability/i })).not.toBeInTheDocument();
   });
 
-  test("legend grows with each newly revealed metric", () => {
+  test("adds a toggle for each newly revealed metric", () => {
     render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
-    const legend = screen.getByTestId("game-chart-legend");
-    expect(legend).toHaveTextContent("Vibe score");
-    expect(legend).toHaveTextContent("Danceability");
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /danceability/i })).toBeInTheDocument();
+  });
+
+  test("shows one metric's line at a time, switching which is active on toggle click", () => {
+    render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
+
+    const vibeTab = screen.getByRole("tab", { name: /vibe score/i });
+    const danceabilityTab = screen.getByRole("tab", { name: /danceability/i });
+
+    expect(vibeTab).toHaveAttribute("aria-selected", "true");
+    expect(danceabilityTab).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.click(danceabilityTab);
+
+    expect(danceabilityTab).toHaveAttribute("aria-selected", "true");
+    expect(vibeTab).toHaveAttribute("aria-selected", "false");
   });
 });

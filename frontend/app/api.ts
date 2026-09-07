@@ -1,4 +1,9 @@
-import type { GuessResponse, RevealResponse, StartRoundResponse } from "./types";
+import type {
+  ArtistSuggestion,
+  GuessResponse,
+  RevealResponse,
+  StartRoundResponse,
+} from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -10,6 +15,20 @@ export class ApiRequestError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new ApiRequestError(
+      response.status,
+      data.detail ?? "Something went wrong. Please try again."
+    );
+  }
+
+  return data as T;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -31,8 +50,20 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export function startRound(artistName: string): Promise<StartRoundResponse> {
-  return postJson<StartRoundResponse>("/api/game/rounds", { artist_name: artistName });
+export interface StartRoundParams {
+  artistName?: string;
+  artistSpotifyId?: string;
+}
+
+export function startRound(params: StartRoundParams): Promise<StartRoundResponse> {
+  return postJson<StartRoundResponse>("/api/game/rounds", {
+    artist_name: params.artistName,
+    artist_spotify_id: params.artistSpotifyId,
+  });
+}
+
+export function searchArtists(query: string): Promise<ArtistSuggestion[]> {
+  return getJson<ArtistSuggestion[]>(`/api/game/artists?q=${encodeURIComponent(query)}`);
 }
 
 export function submitGuess(roundId: string, albumSpotifyId: string): Promise<GuessResponse> {

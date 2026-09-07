@@ -99,8 +99,14 @@ class SpotifyClient:
     async def get_playlist_items(self, playlist_id: str, limit: int = 100) -> dict:
         return await self._get(f"/playlists/{playlist_id}/items?limit={limit}")
 
+    async def get_artist(self, artist_id: str) -> dict:
+        return await self._get(f"/artists/{artist_id}")
+
     async def search_artist(self, name: str) -> dict:
-        return await self._get(f"/search?q={quote(name)}&type=artist&limit=1")
+        return await self.search_artists(name, limit=1)
+
+    async def search_artists(self, query: str, limit: int = 10) -> dict:
+        return await self._get(f"/search?q={quote(query)}&type=artist&limit={limit}")
 
     async def get_artist_albums(self, artist_id: str, limit: int = 10) -> dict:
         # include_groups=album excludes singles, compilations, and

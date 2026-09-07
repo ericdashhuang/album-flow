@@ -14,6 +14,7 @@ from app.game_service import (
     RoundNotFinishedError,
     RoundNotFoundError,
     reveal_round,
+    search_artists,
     start_round,
     submit_guess,
 )
@@ -21,6 +22,7 @@ from app.lookup import build_lookup_result
 from app.models import LookupLog
 from app.schemas import (
     AlbumOption,
+    ArtistSuggestion,
     GuessRequest,
     GuessResponse,
     HintPoint,
@@ -92,6 +94,23 @@ async def lookup(
     return result
 
 
+@app.get("/api/game/artists", response_model=list[ArtistSuggestion])
+async def search_game_artists(
+    q: str = Query(..., min_length=1, description="Partial artist name"),
+) -> list[ArtistSuggestion]:
+    settings = get_settings()
+    client = SpotifyClient(settings)
+    try:
+        results = await search_artists(client, q)
+    finally:
+        await client.aclose()
+
+    return [
+        ArtistSuggestion(spotify_id=r.spotify_id, name=r.name, image_url=r.image_url)
+        for r in results
+    ]
+
+
 @app.post("/api/game/rounds", response_model=StartRoundResponse)
 async def start_game_round(
     request: StartRoundRequest, session: Session = Depends(get_session)
@@ -99,7 +118,12 @@ async def start_game_round(
     settings = get_settings()
     client = SpotifyClient(settings)
     try:
-        result = await start_round(session, client, request.artist_name)
+        result = await start_round(
+            session,
+            client,
+            artist_name=request.artist_name,
+            artist_spotify_id=request.artist_spotify_id,
+        )
     finally:
         await client.aclose()
 
@@ -120,6 +144,7 @@ def submit_round_guess(
     return GuessResponse(
         correct=result.correct,
         wrong_guess_count=result.wrong_guess_count,
+        eliminated_album_ids=result.eliminated_album_ids,
         newly_revealed_metric=(
             RevealedMetric(**result.newly_revealed_metric)
             if result.newly_revealed_metric
