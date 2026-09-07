@@ -171,6 +171,59 @@ def test_filters_out_live_remix_and_reissue_albums_and_dedupes_reissues(session,
     assert option_names == {"Homework", "Random Access Memories", "Discovery", "Human After All"}
 
 
+def test_filters_out_albums_whose_only_non_studio_signal_is_in_track_names(session, monkeypatch):
+    """Regression test shaped after real cases caught live for Radiohead:
+    the album's own title gives zero hint it's non-studio, but its track
+    names do. "I Might Be Wrong" is Radiohead's actual live album - its
+    title has no live-related keyword, but every track says "- Live in
+    <city>". "OK Computer OKNOTOK 1997 2017" is an anniversary reissue whose
+    tracks say "- Remastered" rather than "anniversary". "TKOL RMX 1234567"
+    is a remix album whose tracks say "Remix"/"Rmx"."""
+    monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
+
+    albums = [
+        _album("in-rainbows", "In Rainbows"),
+        _album("kid-a", "Kid A"),
+        _album("ok-computer", "OK Computer"),
+        _album("i-might-be-wrong", "I Might Be Wrong"),
+        _album("oknotok", "OK Computer OKNOTOK 1997 2017"),
+        _album("tkol-rmx", "TKOL RMX 1234567"),
+    ]
+    tracks_by_album = {
+        "in-rainbows": [_track_item("ir1", 1)],
+        "kid-a": [_track_item("ka1", 1)],
+        "ok-computer": [_track_item("oc1", 1)],
+        "i-might-be-wrong": [
+            {
+                "id": "imbw1",
+                "name": "The National Anthem - Live in France",
+                "track_number": 1,
+                "preview_url": None,
+            },
+        ],
+        "oknotok": [
+            {"id": "ok1", "name": "Airbag - Remastered", "track_number": 1, "preview_url": None},
+        ],
+        "tkol-rmx": [
+            {
+                "id": "rmx1",
+                "name": "Little By Little - Caribou Rmx",
+                "track_number": 1,
+                "preview_url": None,
+            },
+        ],
+    }
+
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
+    client_stub = FakeSpotifyClient(albums, tracks_by_album)
+    result = asyncio.run(start_round(session, client_stub, "Radiohead"))
+
+    option_names = {option["name"] for option in result.album_options}
+    assert option_names == {"In Rainbows", "Kid A", "OK Computer"}
+
+
 def test_hint_metric_revealed_every_second_wrong_guess(session, monkeypatch):
     monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
     albums = [
