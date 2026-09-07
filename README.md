@@ -7,6 +7,7 @@ Paste a Spotify album or playlist link and see its energy arc: a chart of the co
 - `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score (primarily via ReccoBeats, falling back to 30-second preview clips when ReccoBeats has no match), and exposes `GET /api/lookup`.
 - `frontend/` - Next.js (App Router) app with a single page: paste a link, see the energy-arc chart (Recharts) and tracklist.
 - `docker-compose.yml` - local Postgres for backend development.
+- `render.yaml` - Render Blueprint for deploying both services plus a managed Postgres database. See `DEPLOYMENT.md` for the remaining manual steps.
 
 ## Prerequisites
 
