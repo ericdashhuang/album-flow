@@ -12,8 +12,13 @@ an explicit give-up) is true.
 
 Reuses the existing Spotify/vibe pipeline rather than duplicating it -
 `SpotifyClient` (app/spotify_client.py) for artist/album/track lookups and
-`get_or_compute_vibe` (app/vibe_service.py) for the per-track vibe metrics,
-cache included.
+`get_or_compute_vibes_bulk` (app/vibe_service.py) for the per-track vibe
+metrics, cache included. Track data is fetched via the *bulk* helper (not
+`get_or_compute_vibe` in a per-track loop) specifically because a round can
+need vibe data for a whole album - up to 3 candidate albums, if rerolling -
+and looping the single-track lookup serialized what can be dozens of
+ReccoBeats round trips into a many-seconds-long request that looked hung to
+an end user. See vibe_service.get_or_compute_vibes_bulk's docstring.
 """
 
 import json
@@ -26,7 +31,7 @@ from typing import Protocol
 from sqlmodel import Session
 
 from app.models import GameRound
-from app.vibe_service import get_or_compute_vibe
+from app.vibe_service import get_or_compute_vibes_bulk
 
 # How many real albums an artist needs before a round is even worth starting.
 MIN_ALBUMS_FOR_ROUND = 3
@@ -151,9 +156,13 @@ async def _build_track_data(
     session: Session, client: SpotifyClientProtocol, album_id: str
 ) -> list[dict]:
     tracks_page = await client.get_album_tracks(album_id)
+    items = tracks_page["items"]
+    vibes = await get_or_compute_vibes_bulk(
+        session, [(item["id"], item.get("preview_url")) for item in items]
+    )
     tracks = []
-    for item in tracks_page["items"]:
-        vibe = await get_or_compute_vibe(session, item["id"], item.get("preview_url"))
+    for item in items:
+        vibe = vibes[item["id"]]
         tracks.append(
             {
                 "spotify_id": item["id"],

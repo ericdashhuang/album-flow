@@ -1,12 +1,14 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlmodel import Session
 
 from app.database import get_engine
+from app.models import TrackVibe
 from app.vibe_analysis import AudioAnalysisError, VibeFeatures
-from app.vibe_service import get_or_compute_vibe
+from app.vibe_service import get_or_compute_vibe, get_or_compute_vibes_bulk
 
 FAKE_LIBROSA_FEATURES = VibeFeatures(vibe_score=0.5, energy=0.4, brightness=0.6, tempo_bpm=120.0)
 FAKE_RECCOBEATS_FEATURES = {
@@ -105,3 +107,69 @@ def test_both_sources_unavailable_returns_none(
     mock_get_track_vibe.assert_awaited_once()
     mock_download.assert_not_awaited()
     mock_analyze.assert_not_called()
+
+
+def test_bulk_lookup_skips_cached_tracks_and_only_fetches_misses(session):
+    session.add(
+        TrackVibe(
+            spotify_track_id="track-cached",
+            vibe_score=0.9,
+            energy=0.9,
+            brightness=0.9,
+            tempo_bpm=100.0,
+            source="reccobeats",
+        )
+    )
+    session.commit()
+
+    with patch(
+        "app.vibe_service.get_track_vibe",
+        new_callable=AsyncMock,
+        return_value=FAKE_RECCOBEATS_FEATURES,
+    ) as mock_get_track_vibe:
+        result = asyncio.run(
+            get_or_compute_vibes_bulk(session, [("track-cached", None), ("track-new", None)])
+        )
+
+    assert result["track-cached"].vibe_score == 0.9
+    assert result["track-new"].vibe_score == FAKE_RECCOBEATS_FEATURES["vibe_score"]
+    mock_get_track_vibe.assert_awaited_once_with("track-new")
+
+    # The newly computed track is now cached too.
+    assert session.get(TrackVibe, "track-new") is not None
+
+
+def test_bulk_lookup_runs_cache_misses_concurrently(session):
+    """Regression test: the album-guessing game's round-start was looping
+    get_or_compute_vibe one track at a time, serializing what can be dozens
+    of ReccoBeats round trips into a many-seconds-long request that looked
+    hung to an end user (confirmed live: ~16s for one 14-track album on a
+    cold cache). Concurrent lookups should take roughly one round trip's
+    worth of time, not N round trips'."""
+
+    async def slow_vibe(spotify_track_id: str):
+        await asyncio.sleep(0.1)
+        return dict(FAKE_RECCOBEATS_FEATURES)
+
+    with patch("app.vibe_service.get_track_vibe", side_effect=slow_vibe):
+        tracks = [(f"track-{i}", None) for i in range(6)]
+        start = time.monotonic()
+        result = asyncio.run(get_or_compute_vibes_bulk(session, tracks))
+        elapsed = time.monotonic() - start
+
+    assert len(result) == 6
+    assert all(vibe is not None for vibe in result.values())
+    # Sequential would take ~0.6s (6 * 0.1s); concurrent stays close to 0.1s.
+    assert elapsed < 0.3
+
+
+def test_bulk_lookup_returns_none_for_tracks_with_no_data(session):
+    with patch(
+        "app.vibe_service.get_track_vibe", new_callable=AsyncMock, return_value=None
+    ):
+        result = asyncio.run(
+            get_or_compute_vibes_bulk(session, [("track-no-data", None)])
+        )
+
+    assert result == {"track-no-data": None}
+    assert session.get(TrackVibe, "track-no-data") is None
