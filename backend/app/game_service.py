@@ -18,6 +18,7 @@ cache included.
 
 import json
 import random
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Protocol
@@ -75,34 +76,75 @@ class SpotifyClientProtocol(Protocol):
     """The subset of SpotifyClient this module depends on - lets tests pass
     a lightweight stub instead of a real HTTP-backed client."""
 
+    async def get_artist(self, artist_id: str) -> dict: ...
+
     async def search_artist(self, name: str) -> dict: ...
+
+    async def search_artists(self, query: str, limit: int = 10) -> dict: ...
 
     async def get_artist_albums(self, artist_id: str, limit: int = 50) -> dict: ...
 
     async def get_album_tracks(self, album_id: str, limit: int = 50) -> dict: ...
 
 
-def _dedupe_albums_by_name(items: list[dict]) -> list[dict]:
-    """Spotify's artist-albums endpoint frequently lists the same album
-    multiple times (regional reissues, remasters) with distinct IDs but an
-    identical name. A duplicate name would be a confusing, distinguishable-
-    only-by-luck pair of guess options, so only the first occurrence of each
-    name is kept."""
-    seen: set[str] = set()
-    deduped = []
+# `album_type=album` (via Spotify's `include_groups=album`) still lets through
+# live albums, remix albums, and deluxe/anniversary/reissue editions - all
+# observed live for Daft Punk (e.g. "Alive 2007", "Human After All
+# (Remixes)", "Homework (25th Anniversary Edition)", "TRON: Legacy
+# Reconfigured"). A name-pattern heuristic filters those out; it's not a
+# perfect classifier, but it removes the worst, most obviously-non-studio
+# offenders. `|` is a strong signal of a compilation-style title (observed:
+# "Daft Punk | Random Access Memories | The Collaborators").
+_NON_STUDIO_NAME_PATTERNS = (
+    "live",  # also matches stylized "Alive 1997/2007", which are live albums
+    "remix",
+    "anniversary",
+    "reconfigured",
+    "deluxe",
+    "drumless",
+    "reissue",
+    "the collaborators",
+)
+
+
+def _looks_like_non_studio_edition(name: str) -> bool:
+    if "|" in name:
+        return True
+    lowered = name.lower()
+    return any(pattern in lowered for pattern in _NON_STUDIO_NAME_PATTERNS)
+
+
+def _base_album_name(name: str) -> str:
+    """Strip parenthetical and trailing " - <descriptor>" suffixes so
+    reissues of the same core album collapse onto one canonical entry, e.g.
+    "Random Access Memories (10th Anniversary Edition)" and "Random Access
+    Memories (Drumless Edition)" both reduce to "random access memories"."""
+    without_parens = re.sub(r"\s*\([^)]*\)\s*", " ", name)
+    without_suffix = re.split(r"\s+-\s+", without_parens)[0]
+    return without_suffix.strip().lower()
+
+
+def _dedupe_albums_by_base_name(items: list[dict]) -> list[dict]:
+    """Collapse near-duplicate reissues of the same base album into one
+    entry - the shortest name in each group, since edition descriptors only
+    ever add to the plain title, never shorten it."""
+    order: list[str] = []
+    best_by_key: dict[str, dict] = {}
     for item in items:
-        key = item["name"].strip().lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
-    return deduped
+        key = _base_album_name(item["name"])
+        if key not in best_by_key:
+            best_by_key[key] = item
+            order.append(key)
+        elif len(item["name"]) < len(best_by_key[key]["name"]):
+            best_by_key[key] = item
+    return [best_by_key[key] for key in order]
 
 
 async def _fetch_real_albums(client: SpotifyClientProtocol, artist_id: str) -> list[dict]:
     page = await client.get_artist_albums(artist_id)
     albums = [item for item in page.get("items", []) if item.get("album_type") == "album"]
-    return _dedupe_albums_by_name(albums)
+    albums = [item for item in albums if not _looks_like_non_studio_edition(item["name"])]
+    return _dedupe_albums_by_base_name(albums)
 
 
 async def _build_track_data(
@@ -136,6 +178,32 @@ def _album_image_url(album: dict) -> str | None:
 
 
 @dataclass
+class ArtistSuggestion:
+    spotify_id: str
+    name: str
+    image_url: str | None
+
+
+async def search_artists(
+    client: SpotifyClientProtocol, query: str, limit: int = 5
+) -> list[ArtistSuggestion]:
+    """Backs the artist-name autocomplete dropdown - a thin pass-through
+    over Spotify's own artist search, trimmed to the fields the frontend
+    needs (name + image) plus the exact Spotify ID so selecting a suggestion
+    can start a round unambiguously via `start_round(artist_spotify_id=...)`.
+    """
+    query = query.strip()
+    if not query:
+        return []
+    result = await client.search_artists(query, limit=limit)
+    items = result.get("artists", {}).get("items", [])
+    return [
+        ArtistSuggestion(spotify_id=item["id"], name=item["name"], image_url=_album_image_url(item))
+        for item in items
+    ]
+
+
+@dataclass
 class RoundStart:
     round_id: str
     artist_name: str
@@ -145,9 +213,17 @@ class RoundStart:
 
 
 async def start_round(
-    session: Session, client: SpotifyClientProtocol, artist_name: str
+    session: Session,
+    client: SpotifyClientProtocol,
+    artist_name: str | None = None,
+    artist_spotify_id: str | None = None,
 ) -> RoundStart:
-    """Resolve an artist by name and start a round in one call.
+    """Resolve an artist and start a round in one call.
+
+    Prefers `artist_spotify_id` when given - the autocomplete dropdown
+    passes the exact artist the player selected, which avoids the
+    ambiguous-name mismatches a plain name search can hit (two artists can
+    legitimately share a name). Falls back to a name search otherwise.
 
     Picks a random target album, rerolling (bounded by MAX_TARGET_ATTEMPTS)
     if the chosen one has too little computed vibe data to make a decent
@@ -155,11 +231,16 @@ async def start_round(
     NoSuitableAlbumError for the corresponding failure cases - see
     app/main.py for how those map to HTTP responses.
     """
-    search = await client.search_artist(artist_name)
-    artists = search.get("artists", {}).get("items", [])
-    if not artists:
-        raise ArtistNotFoundError(f"No Spotify artist found for '{artist_name}'.")
-    artist = artists[0]
+    if artist_spotify_id:
+        artist = await client.get_artist(artist_spotify_id)
+    else:
+        if not artist_name or not artist_name.strip():
+            raise ArtistNotFoundError("An artist name is required.")
+        search = await client.search_artist(artist_name)
+        artists = search.get("artists", {}).get("items", [])
+        if not artists:
+            raise ArtistNotFoundError(f"No Spotify artist found for '{artist_name}'.")
+        artist = artists[0]
 
     albums = await _fetch_real_albums(client, artist["id"])
     if len(albums) < MIN_ALBUMS_FOR_ROUND:
@@ -229,22 +310,38 @@ def _get_round(session: Session, round_id: str) -> GameRound:
 class GuessResult:
     correct: bool
     wrong_guess_count: int
+    eliminated_album_ids: list[str]
     newly_revealed_metric: dict | None
 
 
 def submit_guess(session: Session, round_id: str, guessed_album_id: str) -> GuessResult:
     """Check a guess server-side and, on a wrong guess, cross any newly
     unlocked hint threshold. Never returns the target's identity or any
-    track name, even on a correct guess - that's reveal_round's job."""
+    track name, even on a correct guess - that's reveal_round's job.
+
+    The set of eliminated (wrong-guessed) album IDs is tracked here, in
+    `GameRound.eliminated_album_ids_json`, and returned in full on every
+    call - the frontend should treat this list as authoritative rather than
+    accumulating its own, so a lost or out-of-order response can never leave
+    a previously wrong-guessed album looking guessable again.
+    """
     row = _get_round(session, round_id)
+    eliminated: list[str] = json.loads(row.eliminated_album_ids_json)
 
     if row.solved or guessed_album_id == row.target_album_id:
         row.solved = True
         session.add(row)
         session.commit()
         return GuessResult(
-            correct=True, wrong_guess_count=row.wrong_guess_count, newly_revealed_metric=None
+            correct=True,
+            wrong_guess_count=row.wrong_guess_count,
+            eliminated_album_ids=eliminated,
+            newly_revealed_metric=None,
         )
+
+    if guessed_album_id not in eliminated:
+        eliminated.append(guessed_album_id)
+        row.eliminated_album_ids_json = json.dumps(eliminated)
 
     row.wrong_guess_count += 1
     new_hint_level = min(row.wrong_guess_count // 2, len(HINT_METRIC_ORDER))
@@ -272,6 +369,7 @@ def submit_guess(session: Session, round_id: str, guessed_album_id: str) -> Gues
     return GuessResult(
         correct=False,
         wrong_guess_count=row.wrong_guess_count,
+        eliminated_album_ids=eliminated,
         newly_revealed_metric=newly_revealed,
     )
 

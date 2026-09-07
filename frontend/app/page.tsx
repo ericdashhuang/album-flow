@@ -1,14 +1,15 @@
 "use client";
 
-import { Fragment, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Image from "next/image";
 import styles from "./page.module.css";
 import { ApiRequestError, revealRound, startRound, submitGuess } from "./api";
+import ArtistAutocomplete from "./ArtistAutocomplete";
 import GameChart from "./GameChart";
-import { METRIC_LABELS } from "./metrics";
-import { METRIC_DESCRIPTIONS } from "./types";
+import MetricGlossary from "./MetricGlossary";
 import type {
   AlbumOption,
+  ArtistSuggestion,
   HintPoint,
   RevealedMetric,
   RevealResponse,
@@ -47,7 +48,7 @@ export default function Home() {
 
   const [roundId, setRoundId] = useState<string | null>(null);
   const [albumOptions, setAlbumOptions] = useState<AlbumOption[]>([]);
-  const [eliminated, setEliminated] = useState<Set<string>>(new Set());
+  const [eliminatedIds, setEliminatedIds] = useState<string[]>([]);
   const [hints, setHints] = useState<HintPoint[]>([]);
   const [revealedMetrics, setRevealedMetrics] = useState<RevealedMetric[]>([]);
   const [wrongGuessCount, setWrongGuessCount] = useState(0);
@@ -59,7 +60,7 @@ export default function Home() {
   function resetRoundState() {
     setRoundId(null);
     setAlbumOptions([]);
-    setEliminated(new Set());
+    setEliminatedIds([]);
     setHints([]);
     setRevealedMetrics([]);
     setWrongGuessCount(0);
@@ -67,13 +68,13 @@ export default function Home() {
     setReveal(null);
   }
 
-  async function beginRound(name: string) {
+  async function beginRound(params: { artistName?: string; artistSpotifyId?: string }) {
     setLoading(true);
     setError(null);
     resetRoundState();
 
     try {
-      const result = await startRound(name);
+      const result = await startRound(params);
       setRoundId(result.round_id);
       setArtistName(result.artist_name);
       setAlbumOptions(result.album_options);
@@ -81,10 +82,11 @@ export default function Home() {
       setTrackCount(result.track_count);
       setGameState("round");
     } catch (err) {
+      const attemptedName = params.artistName ?? artistInput;
       if (err instanceof ApiRequestError) {
         if (err.status === 404) {
           setError(
-            `Couldn't find an artist named "${name}" on Spotify. Check the spelling and try again.`
+            `Couldn't find an artist named "${attemptedName}" on Spotify. Check the spelling and try again.`
           );
         } else {
           // Backend already phrases 422s ("not enough albums" / "no suitable
@@ -106,7 +108,12 @@ export default function Home() {
     if (!name) {
       return;
     }
-    await beginRound(name);
+    await beginRound({ artistName: name });
+  }
+
+  function handleSelectSuggestion(artist: ArtistSuggestion) {
+    setArtistInput(artist.name);
+    void beginRound({ artistSpotifyId: artist.spotify_id, artistName: artist.name });
   }
 
   async function fetchReveal(giveUp: boolean) {
@@ -137,7 +144,7 @@ export default function Home() {
       }
 
       setWrongGuessCount(result.wrong_guess_count);
-      setEliminated((prev) => new Set(prev).add(albumSpotifyId));
+      setEliminatedIds(result.eliminated_album_ids);
       if (result.newly_revealed_metric) {
         const metric = result.newly_revealed_metric;
         setRevealedMetrics((prev) => [...prev, metric]);
@@ -157,26 +164,27 @@ export default function Home() {
     setGameState("landing");
   }
 
-  const remainingOptions = albumOptions.filter((option) => !eliminated.has(option.spotify_id));
+  const remainingOptions = albumOptions.filter(
+    (option) => !eliminatedIds.includes(option.spotify_id)
+  );
 
   return (
     <div className={styles.page}>
       <main className={styles.main}>
-        <h1 className={styles.title}>Album Flow</h1>
-        <p className={styles.subtitle}>
-          Guess the album from its unlabeled vibe chart, one track at a time.
-        </p>
+        <div className={styles.header}>
+          <h1 className={styles.title}>Album Flow</h1>
+          <p className={styles.subtitle}>
+            Guess the album from its unlabeled vibe chart, one track at a time.
+          </p>
+        </div>
 
         {gameState === "landing" && (
-          <form className={styles.form} onSubmit={handleStartSubmit}>
-            <input
-              className={styles.input}
-              type="text"
+          <form className={`${styles.form} ${styles.headerWidth}`} onSubmit={handleStartSubmit}>
+            <ArtistAutocomplete
               value={artistInput}
-              onChange={(event) => setArtistInput(event.target.value)}
-              placeholder="Artist name, e.g. Radiohead"
-              aria-label="Artist name"
-              required
+              onChange={setArtistInput}
+              onSelect={handleSelectSuggestion}
+              disabled={loading}
             />
             <button className={styles.button} type="submit" disabled={loading}>
               {loading ? "Starting..." : "Start guessing"}
@@ -185,111 +193,104 @@ export default function Home() {
         )}
 
         {error && (
-          <p className={styles.error} role="alert">
+          <p className={`${styles.error} ${styles.headerWidth}`} role="alert">
             {error}
           </p>
         )}
 
         {gameState === "round" && (
-          <section className={styles.result}>
-            <div>
-              <h2 className={styles.resultTitle}>Guess the {artistName} album</h2>
-              <p className={styles.resultMeta}>
-                {trackCount} tracks · {wrongGuessCount}{" "}
-                {wrongGuessCount === 1 ? "wrong guess" : "wrong guesses"}
-              </p>
-            </div>
+          <div className={styles.gameLayout}>
+            <section className={styles.gameMain}>
+              <div>
+                <h2 className={styles.resultTitle}>Guess the {artistName} album</h2>
+                <p className={styles.resultMeta}>
+                  {trackCount} tracks · {wrongGuessCount}{" "}
+                  {wrongGuessCount === 1 ? "wrong guess" : "wrong guesses"}
+                </p>
+              </div>
 
-            <GameChart hints={hints} revealedMetrics={revealedMetrics} />
+              <GameChart key={roundId} hints={hints} revealedMetrics={revealedMetrics} />
 
-            <ul className={styles.optionList}>
-              {remainingOptions.map((option) => (
-                <li key={option.spotify_id}>
-                  <button
-                    className={styles.optionButton}
-                    onClick={() => handleGuess(option.spotify_id)}
-                    disabled={guessing}
-                  >
-                    {option.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
+              <ul className={styles.optionList}>
+                {remainingOptions.map((option) => (
+                  <li key={option.spotify_id}>
+                    <button
+                      className={styles.optionButton}
+                      onClick={() => handleGuess(option.spotify_id)}
+                      disabled={guessing}
+                    >
+                      {option.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
 
-            <button
-              className={styles.giveUpButton}
-              type="button"
-              onClick={() => fetchReveal(true)}
-              disabled={guessing}
-            >
-              Give up &amp; reveal the answer
-            </button>
-          </section>
+              <button
+                className={styles.giveUpButton}
+                type="button"
+                onClick={() => fetchReveal(true)}
+                disabled={guessing}
+              >
+                Give up &amp; reveal the answer
+              </button>
+            </section>
+
+            <MetricGlossary revealedMetrics={revealedMetrics.map((entry) => entry.metric)} />
+          </div>
         )}
 
         {gameState === "reveal" && reveal && (
-          <section className={styles.result}>
-            <div className={styles.resultHeader}>
-              {reveal.album_image_url && (
-                <Image
-                  className={styles.coverArt}
-                  src={reveal.album_image_url}
-                  alt={`${reveal.album_name} cover art`}
-                  width={160}
-                  height={160}
-                  unoptimized
-                />
-              )}
-              <div>
-                <h2 className={styles.resultTitle}>{reveal.album_name}</h2>
-                <p className={styles.resultOwner}>{reveal.artist_name}</p>
+          <div className={styles.gameLayout}>
+            <section className={styles.gameMain}>
+              <div className={styles.resultHeader}>
+                {reveal.album_image_url && (
+                  <Image
+                    className={styles.coverArt}
+                    src={reveal.album_image_url}
+                    alt={`${reveal.album_name} cover art`}
+                    width={160}
+                    height={160}
+                    unoptimized
+                  />
+                )}
+                <div>
+                  <h2 className={styles.resultTitle}>{reveal.album_name}</h2>
+                  <p className={styles.resultOwner}>{reveal.artist_name}</p>
+                </div>
               </div>
-            </div>
 
-            <GameChart
-              hints={hintsFromReveal(reveal)}
-              revealedMetrics={revealedMetricsFromReveal(reveal)}
-              trackNames={trackNamesFromReveal(reveal)}
-            />
+              <GameChart
+                key={`${roundId}-reveal`}
+                hints={hintsFromReveal(reveal)}
+                revealedMetrics={revealedMetricsFromReveal(reveal)}
+                trackNames={trackNamesFromReveal(reveal)}
+              />
 
-            <ol className={styles.trackList}>
-              {reveal.tracks.map((track) => (
-                <li key={track.track_number} className={styles.track}>
-                  <span className={styles.trackNumber}>{track.track_number}</span>
-                  <span className={styles.trackName}>{track.name}</span>
-                </li>
-              ))}
-            </ol>
-
-            <section className={styles.glossary} aria-label="Metric glossary">
-              <h3 className={styles.glossaryTitle}>What do these metrics mean?</h3>
-              <dl className={styles.glossaryList}>
-                <dt className={styles.glossaryTerm}>Vibe score</dt>
-                <dd className={styles.glossaryDescription}>{METRIC_DESCRIPTIONS.vibe_score}</dd>
-                {reveal.revealed_metrics.map((metric) => (
-                  <Fragment key={metric}>
-                    <dt className={styles.glossaryTerm}>{METRIC_LABELS[metric]}</dt>
-                    <dd className={styles.glossaryDescription}>
-                      {METRIC_DESCRIPTIONS[metric]}
-                    </dd>
-                  </Fragment>
+              <ol className={styles.trackList}>
+                {reveal.tracks.map((track) => (
+                  <li key={track.track_number} className={styles.track}>
+                    <span className={styles.trackNumber}>{track.track_number}</span>
+                    <span className={styles.trackName}>{track.name}</span>
+                  </li>
                 ))}
-              </dl>
+              </ol>
+
+              <div className={styles.playAgainRow}>
+                <button
+                  className={styles.button}
+                  type="button"
+                  onClick={() => artistName && beginRound({ artistName })}
+                >
+                  Play again ({artistName})
+                </button>
+                <button className={styles.secondaryButton} type="button" onClick={handleNewArtist}>
+                  Try a different artist
+                </button>
+              </div>
             </section>
 
-            <div className={styles.playAgainRow}>
-              <button
-                className={styles.button}
-                type="button"
-                onClick={() => artistName && beginRound(artistName)}
-              >
-                Play again ({artistName})
-              </button>
-              <button className={styles.secondaryButton} type="button" onClick={handleNewArtist}>
-                Try a different artist
-              </button>
-            </div>
-          </section>
+            <MetricGlossary revealedMetrics={reveal.revealed_metrics} />
+          </div>
         )}
       </main>
     </div>

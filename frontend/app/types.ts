@@ -98,7 +98,17 @@ export interface RevealedMetric {
 export interface GuessResponse {
   correct: boolean;
   wrong_guess_count: number;
+  // Authoritative, cumulative list of every album ID guessed wrong so far
+  // this round - render eliminated options from this, not from locally
+  // accumulated state.
+  eliminated_album_ids: string[];
   newly_revealed_metric: RevealedMetric | null;
+}
+
+export interface ArtistSuggestion {
+  spotify_id: string;
+  name: string;
+  image_url: string | null;
 }
 
 export interface RevealedTrack {

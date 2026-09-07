@@ -27,13 +27,19 @@ def session(client):
 
 class FakeSpotifyClient:
     """Minimal stand-in for SpotifyClient - game_service only needs these
-    three async methods, so tests can skip HTTP mocking entirely."""
+    async methods, so tests can skip HTTP mocking entirely."""
 
     def __init__(self, albums: list[dict], tracks_by_album: dict[str, list[dict]]):
         self._albums = albums
         self._tracks_by_album = tracks_by_album
 
+    async def get_artist(self, artist_id: str) -> dict:
+        return ARTIST
+
     async def search_artist(self, name: str) -> dict:
+        return {"artists": {"items": [ARTIST]}}
+
+    async def search_artists(self, query: str, limit: int = 10) -> dict:
         return {"artists": {"items": [ARTIST]}}
 
     async def get_artist_albums(self, artist_id: str, limit: int = 50) -> dict:
@@ -125,6 +131,39 @@ def test_no_album_has_enough_data_raises(session, monkeypatch):
         asyncio.run(start_round(session, client_stub, "Test Artist"))
 
 
+def test_filters_out_live_remix_and_reissue_albums_and_dedupes_reissues(session, monkeypatch):
+    monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
+
+    # Mirrors what Spotify's real artist-albums endpoint returns for Daft
+    # Punk: `album_type=album` alone lets live albums, remixes, and reissue/
+    # anniversary editions through alongside the real studio albums.
+    albums = [
+        _album("ram-anniv", "Random Access Memories (10th Anniversary Edition)"),
+        _album("homework", "Homework"),
+        _album("ram", "Random Access Memories"),
+        _album("collab", "Daft Punk | Random Access Memories | The Collaborators"),
+        _album("discovery", "Discovery"),
+        _album("alive-2007", "Alive 2007"),
+        _album("remixes", "Human After All (Remixes)"),
+        _album("human-after-all", "Human After All"),
+        _album("homework-anniv", "Homework (25th Anniversary Edition)"),
+        _album("ram-drumless", "Random Access Memories (Drumless Edition)"),
+    ]
+    tracks_by_album = {
+        album["id"]: [_track_item(f"{album['id']}-t1", 1)] for album in albums
+    }
+
+    async def fake_get_or_compute_vibe(session, track_id, preview_url):
+        return _good_vibe()
+
+    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    client_stub = FakeSpotifyClient(albums, tracks_by_album)
+    result = asyncio.run(start_round(session, client_stub, "Daft Punk"))
+
+    option_names = {option["name"] for option in result.album_options}
+    assert option_names == {"Homework", "Random Access Memories", "Discovery", "Human After All"}
+
+
 def test_hint_metric_revealed_every_second_wrong_guess(session, monkeypatch):
     monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
     albums = [
@@ -176,6 +215,40 @@ def test_hint_metric_revealed_every_second_wrong_guess(session, monkeypatch):
     correct = submit_guess(session, result.round_id, "target")
     assert correct.correct is True
     assert correct.newly_revealed_metric is None
+
+
+def test_wrong_guesses_stay_eliminated_cumulatively(session, monkeypatch):
+    """Regression test: a prior bug only reported the most-recently-guessed
+    album as eliminated, so an earlier wrong guess would look guessable
+    again. eliminated_album_ids must accumulate for the whole round."""
+    monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
+    albums = [
+        _album("target", "Target Album"),
+        _album("wrong-1", "Wrong One"),
+        _album("wrong-2", "Wrong Two"),
+    ]
+    tracks_by_album = {
+        "target": [_track_item("t1", 1)],
+        "wrong-1": [_track_item("w1", 1)],
+        "wrong-2": [_track_item("w2", 1)],
+    }
+
+    async def fake_get_or_compute_vibe(session, track_id, preview_url):
+        return _good_vibe()
+
+    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    client_stub = FakeSpotifyClient(albums, tracks_by_album)
+    result = asyncio.run(start_round(session, client_stub, "Test Artist"))
+
+    guess1 = submit_guess(session, result.round_id, "wrong-1")
+    assert guess1.eliminated_album_ids == ["wrong-1"]
+
+    guess2 = submit_guess(session, result.round_id, "wrong-2")
+    assert set(guess2.eliminated_album_ids) == {"wrong-1", "wrong-2"}
+
+    # Guessing the same wrong album again must not duplicate it in the list.
+    guess3 = submit_guess(session, result.round_id, "wrong-1")
+    assert sorted(guess3.eliminated_album_ids) == ["wrong-1", "wrong-2"]
 
 
 def test_reveal_before_solved_requires_give_up(session, monkeypatch):

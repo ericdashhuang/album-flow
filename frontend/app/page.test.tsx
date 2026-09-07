@@ -1,7 +1,12 @@
-import { describe, expect, test, vi, type Mock } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Home from "./page";
-import type { GuessResponse, RevealResponse, StartRoundResponse } from "./types";
+import type {
+  ArtistSuggestion,
+  GuessResponse,
+  RevealResponse,
+  StartRoundResponse,
+} from "./types";
 
 vi.mock("./api", () => {
   class MockApiRequestError extends Error {
@@ -14,12 +19,13 @@ vi.mock("./api", () => {
   return {
     ApiRequestError: MockApiRequestError,
     startRound: vi.fn(),
+    searchArtists: vi.fn().mockResolvedValue([]),
     submitGuess: vi.fn(),
     revealRound: vi.fn(),
   };
 });
 
-import { ApiRequestError, revealRound, startRound, submitGuess } from "./api";
+import { ApiRequestError, revealRound, searchArtists, startRound, submitGuess } from "./api";
 
 const START_ROUND_RESULT: StartRoundResponse = {
   round_id: "round-1",
@@ -65,8 +71,8 @@ describe("landing state", () => {
     expect(screen.getByText("Album B")).toBeInTheDocument();
     expect(screen.getByText("Album C")).toBeInTheDocument();
     expect(screen.getByTestId("game-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("game-chart-legend")).toHaveTextContent("Vibe score");
-    expect(screen.getByTestId("game-chart-legend")).not.toHaveTextContent("Danceability");
+    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /danceability/i })).not.toBeInTheDocument();
   });
 
   test("shows a friendly message when the artist has too few albums", async () => {
@@ -94,6 +100,50 @@ describe("landing state", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't find an artist named "Nobody"/i);
   });
+
+  describe("artist autocomplete", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const SUGGESTIONS: ArtistSuggestion[] = [
+      { spotify_id: "kanye-id", name: "Kanye West", image_url: "https://example.com/kanye.jpg" },
+    ];
+
+    test("shows debounced suggestions with images and selecting one starts the round by ID", async () => {
+      (searchArtists as Mock).mockResolvedValueOnce(SUGGESTIONS);
+      (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
+
+      render(<Home />);
+      fireEvent.change(screen.getByLabelText(/artist name/i), { target: { value: "kan" } });
+
+      // Not called until the debounce window elapses.
+      expect(searchArtists).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(300);
+      await waitFor(() => expect(searchArtists).toHaveBeenCalledWith("kan"));
+
+      const suggestion = await screen.findByRole("option", { name: /kanye west/i });
+      expect(suggestion.querySelector("img")).toHaveAttribute(
+        "src",
+        expect.stringContaining("kanye.jpg")
+      );
+
+      fireEvent.click(suggestion);
+
+      await waitFor(() =>
+        expect(startRound).toHaveBeenCalledWith({
+          artistSpotifyId: "kanye-id",
+          artistName: "Kanye West",
+        })
+      );
+      await screen.findByText("Album A");
+    });
+  });
 });
 
 describe("round state - guessing and hint reveal", () => {
@@ -102,6 +152,7 @@ describe("round state - guessing and hint reveal", () => {
     (submitGuess as Mock).mockResolvedValueOnce({
       correct: false,
       wrong_guess_count: 1,
+      eliminated_album_ids: ["album-b"],
       newly_revealed_metric: null,
     } satisfies GuessResponse);
 
@@ -114,17 +165,50 @@ describe("round state - guessing and hint reveal", () => {
     expect(screen.getByRole("button", { name: "Album C" })).toBeInTheDocument();
   });
 
-  test("every 2nd wrong guess reveals the next metric as a new chart line", async () => {
+  test("wrong guesses stay eliminated cumulatively across multiple guesses", async () => {
+    // Regression: a prior bug rendered eliminated options from only the most
+    // recent guess, so an earlier wrong guess reappeared as clickable.
     (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
     (submitGuess as Mock)
       .mockResolvedValueOnce({
         correct: false,
         wrong_guess_count: 1,
+        eliminated_album_ids: ["album-b"],
         newly_revealed_metric: null,
       } satisfies GuessResponse)
       .mockResolvedValueOnce({
         correct: false,
         wrong_guess_count: 2,
+        eliminated_album_ids: ["album-b", "album-c"],
+        newly_revealed_metric: null,
+      } satisfies GuessResponse);
+
+    await startAGame();
+
+    fireEvent.click(screen.getByRole("button", { name: "Album B" }));
+    await screen.findByText(/1 wrong guess/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "Album C" }));
+    await screen.findByText(/2 wrong guesses/i);
+
+    expect(screen.queryByRole("button", { name: "Album B" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Album C" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Album A" })).toBeInTheDocument();
+  });
+
+  test("every 2nd wrong guess adds a new metric toggle for the chart", async () => {
+    (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
+    (submitGuess as Mock)
+      .mockResolvedValueOnce({
+        correct: false,
+        wrong_guess_count: 1,
+        eliminated_album_ids: ["album-b"],
+        newly_revealed_metric: null,
+      } satisfies GuessResponse)
+      .mockResolvedValueOnce({
+        correct: false,
+        wrong_guess_count: 2,
+        eliminated_album_ids: ["album-b", "album-c"],
         newly_revealed_metric: {
           metric: "danceability",
           data: [
@@ -138,12 +222,17 @@ describe("round state - guessing and hint reveal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Album B" }));
     await screen.findByText(/1 wrong guess/i);
-    expect(screen.getByTestId("game-chart-legend")).not.toHaveTextContent("Danceability");
+    expect(screen.queryByRole("tab", { name: /danceability/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Album C" }));
 
     expect(await screen.findByText(/2 wrong guesses/i)).toBeInTheDocument();
-    expect(screen.getByTestId("game-chart-legend")).toHaveTextContent("Danceability");
+    const danceabilityTab = screen.getByRole("tab", { name: /danceability/i });
+    expect(danceabilityTab).toBeInTheDocument();
+
+    // The toggle actually switches which metric is active.
+    fireEvent.click(danceabilityTab);
+    expect(danceabilityTab).toHaveAttribute("aria-selected", "true");
   });
 
   test("a correct guess moves straight to the reveal state", async () => {
@@ -151,6 +240,7 @@ describe("round state - guessing and hint reveal", () => {
     (submitGuess as Mock).mockResolvedValueOnce({
       correct: true,
       wrong_guess_count: 0,
+      eliminated_album_ids: [],
       newly_revealed_metric: null,
     } satisfies GuessResponse);
     (revealRound as Mock).mockResolvedValueOnce(REVEAL_RESULT);
@@ -163,12 +253,27 @@ describe("round state - guessing and hint reveal", () => {
   });
 });
 
+describe("round state - metric glossary panel", () => {
+  test("shows the full glossary from round start, marking unrevealed metrics as locked", async () => {
+    (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
+
+    await startAGame();
+
+    const glossary = screen.getByLabelText(/metric glossary/i);
+    expect(glossary).toHaveTextContent("Vibe score");
+    expect(glossary).toHaveTextContent("Danceability");
+    expect(glossary).toHaveTextContent("Key");
+    expect(glossary).toHaveTextContent(/not yet revealed/i);
+  });
+});
+
 describe("reveal state", () => {
   test("renders track names and a glossary covering every metric shown during the round", async () => {
     (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
     (submitGuess as Mock).mockResolvedValueOnce({
       correct: true,
       wrong_guess_count: 2,
+      eliminated_album_ids: ["album-b", "album-c"],
       newly_revealed_metric: null,
     } satisfies GuessResponse);
     (revealRound as Mock).mockResolvedValueOnce(REVEAL_RESULT);
