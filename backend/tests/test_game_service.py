@@ -81,6 +81,18 @@ def _good_vibe(**overrides) -> VibeOut:
     return VibeOut(**base)
 
 
+def _bulk_vibe_fake(vibe_by_track: dict[str, VibeOut | None] | None = None, default=None):
+    """Builds a fake for get_or_compute_vibes_bulk. With no args, every
+    track gets `default` (None); pass vibe_by_track to look values up per
+    track id, falling back to `default` for anything not listed."""
+
+    async def fake(session, tracks):
+        lookup = vibe_by_track or {}
+        return {track_id: lookup.get(track_id, default) for track_id, _ in tracks}
+
+    return fake
+
+
 def test_sparse_target_is_rerolled_for_a_better_album(session, monkeypatch):
     monkeypatch.setattr("app.game_service.random.shuffle", lambda seq: None)
 
@@ -96,10 +108,9 @@ def test_sparse_target_is_rerolled_for_a_better_album(session, monkeypatch):
     }
     vibe_by_track = {"gc1": _good_vibe(), "gc2": _good_vibe()}
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return vibe_by_track.get(track_id)
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(vibe_by_track)
+    )
 
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Test Artist"))
@@ -121,10 +132,7 @@ def test_no_album_has_enough_data_raises(session, monkeypatch):
         "c": [_track_item("c1", 1), _track_item("c2", 2)],
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return None
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr("app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake())
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
 
     with pytest.raises(NoSuitableAlbumError):
@@ -153,10 +161,9 @@ def test_filters_out_live_remix_and_reissue_albums_and_dedupes_reissues(session,
         album["id"]: [_track_item(f"{album['id']}-t1", 1)] for album in albums
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return _good_vibe()
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Daft Punk"))
 
@@ -177,10 +184,9 @@ def test_hint_metric_revealed_every_second_wrong_guess(session, monkeypatch):
         "wrong-2": [_track_item("w2", 1)],
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return _good_vibe()
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Test Artist"))
 
@@ -233,10 +239,9 @@ def test_wrong_guesses_stay_eliminated_cumulatively(session, monkeypatch):
         "wrong-2": [_track_item("w2", 1)],
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return _good_vibe()
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Test Artist"))
 
@@ -264,10 +269,9 @@ def test_reveal_before_solved_requires_give_up(session, monkeypatch):
         "wrong-2": [_track_item("w2", 1)],
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return _good_vibe()
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Test Artist"))
 
@@ -292,10 +296,9 @@ def test_round_creation_never_leaks_target_or_track_names(session, monkeypatch):
         "wrong-2": [_track_item("w2", 1)],
     }
 
-    async def fake_get_or_compute_vibe(session, track_id, preview_url):
-        return _good_vibe()
-
-    monkeypatch.setattr("app.game_service.get_or_compute_vibe", fake_get_or_compute_vibe)
+    monkeypatch.setattr(
+        "app.game_service.get_or_compute_vibes_bulk", _bulk_vibe_fake(default=_good_vibe())
+    )
     client_stub = FakeSpotifyClient(albums, tracks_by_album)
     result = asyncio.run(start_round(session, client_stub, "Test Artist"))
 

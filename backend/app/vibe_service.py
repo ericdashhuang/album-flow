@@ -12,6 +12,7 @@ project AGENTS.md); the preview+librosa path remains as a fallback for
 whenever ReccoBeats has no data for a track.
 """
 
+import asyncio
 import logging
 
 from sqlmodel import Session
@@ -46,20 +47,9 @@ def _to_vibe_out(row: TrackVibe) -> VibeOut:
     )
 
 
-async def get_or_compute_vibe(
-    session: Session, spotify_track_id: str, preview_url: str | None
-) -> VibeOut | None:
-    """Return the cached vibe for a track, computing and caching it if needed.
-
-    Tries ReccoBeats first (no preview clip needed), then falls back to the
-    preview+librosa path if ReccoBeats has no match and a preview URL exists.
-    Returns None (never raises) when none of that is available - a missing
-    vibe should never fail the whole lookup request.
-    """
-    cached = session.get(TrackVibe, spotify_track_id)
-    if cached is not None:
-        return _to_vibe_out(cached)
-
+async def _compute_vibe_features(spotify_track_id: str, preview_url: str | None) -> dict | None:
+    """Pure computation - no DB access, so this is safe to run concurrently
+    for many tracks at once (see get_or_compute_vibes_bulk)."""
     features = await get_track_vibe(spotify_track_id)
 
     if features is None and preview_url:
@@ -77,6 +67,24 @@ async def get_or_compute_vibe(
                 "source": analyzed.source,
             }
 
+    return features
+
+
+async def get_or_compute_vibe(
+    session: Session, spotify_track_id: str, preview_url: str | None
+) -> VibeOut | None:
+    """Return the cached vibe for a track, computing and caching it if needed.
+
+    Tries ReccoBeats first (no preview clip needed), then falls back to the
+    preview+librosa path if ReccoBeats has no match and a preview URL exists.
+    Returns None (never raises) when none of that is available - a missing
+    vibe should never fail the whole lookup request.
+    """
+    cached = session.get(TrackVibe, spotify_track_id)
+    if cached is not None:
+        return _to_vibe_out(cached)
+
+    features = await _compute_vibe_features(spotify_track_id, preview_url)
     if features is None:
         return None
 
@@ -84,3 +92,50 @@ async def get_or_compute_vibe(
     session.add(row)
     session.commit()
     return _to_vibe_out(row)
+
+
+async def get_or_compute_vibes_bulk(
+    session: Session, tracks: list[tuple[str, str | None]]
+) -> dict[str, VibeOut | None]:
+    """Same as get_or_compute_vibe, but for a whole album's worth of tracks
+    at once.
+
+    The cache check and DB writes stay sequential (SQLAlchemy's synchronous
+    `Session` isn't safe for concurrent use), but the slow part - the
+    ReccoBeats/librosa network calls for whichever tracks miss the cache -
+    runs concurrently via asyncio.gather. This exists specifically because
+    the album-guessing game's round-start was looping get_or_compute_vibe
+    one track at a time, which serialized what can be dozens of network
+    round trips: confirmed live at ~16s for a single 14-track album on a
+    cold cache (and the game may try up to 3 candidate albums before
+    settling on one with enough vibe data), which is indistinguishable from
+    "hung" to an end user. Concurrent lookups cut this to roughly the
+    slowest single track's round trip.
+    """
+    results: dict[str, VibeOut | None] = {}
+    misses: list[tuple[str, str | None]] = []
+
+    for spotify_track_id, preview_url in tracks:
+        cached = session.get(TrackVibe, spotify_track_id)
+        if cached is not None:
+            results[spotify_track_id] = _to_vibe_out(cached)
+        else:
+            misses.append((spotify_track_id, preview_url))
+
+    if not misses:
+        return results
+
+    computed = await asyncio.gather(
+        *(_compute_vibe_features(track_id, preview_url) for track_id, preview_url in misses)
+    )
+
+    for (spotify_track_id, _preview_url), features in zip(misses, computed):
+        if features is None:
+            results[spotify_track_id] = None
+            continue
+        row = TrackVibe(spotify_track_id=spotify_track_id, **features)
+        session.add(row)
+        results[spotify_track_id] = _to_vibe_out(row)
+
+    session.commit()
+    return results
