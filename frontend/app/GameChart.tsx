@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CartesianGrid,
   Label,
@@ -24,6 +24,12 @@ import styles from "./GameChart.module.css";
 
 const PX_PER_TRACK = 76;
 const MIN_CHART_WIDTH = 480;
+// Revealed track-title labels are pinned to this fixed y (within the
+// chart's top margin, reserved space the line's plotted values never enter)
+// rather than positioned relative to each point's own y - a label near a
+// high point would otherwise sit right on the line itself.
+const TRACK_LABEL_Y = 16;
+const CHART_TOP_MARGIN = 32;
 
 export interface ChartDataPoint {
   trackNumber: number;
@@ -83,13 +89,12 @@ function truncateTitle(title: string, max = 14): string {
 
 interface PointLabelProps {
   x?: number;
-  y?: number;
   index?: number;
   data: ChartDataPoint[];
 }
 
-function TrackTitleLabel({ x, y, index, data }: PointLabelProps) {
-  if (x === undefined || y === undefined || index === undefined) {
+function TrackTitleLabel({ x, index, data }: PointLabelProps) {
+  if (x === undefined || index === undefined) {
     return null;
   }
   const name = data[index]?.name;
@@ -97,7 +102,7 @@ function TrackTitleLabel({ x, y, index, data }: PointLabelProps) {
     return null;
   }
   return (
-    <text x={x} y={y - 12} textAnchor="middle" className={styles.pointLabel}>
+    <text x={x} y={TRACK_LABEL_Y} textAnchor="middle" className={styles.pointLabel}>
       {truncateTitle(name)}
     </text>
   );
@@ -148,6 +153,14 @@ export default function GameChart({ hints, revealedMetrics, trackNames }: GameCh
   const [selectedMetric, setSelectedMetric] = useState<ChartMetric>("vibe_score");
   const activeMetric = availableMetrics.includes(selectedMetric) ? selectedMetric : "vibe_score";
 
+  const previousRevealedCount = useRef(revealedMetrics.length);
+  useEffect(() => {
+    if (revealedMetrics.length > previousRevealedCount.current) {
+      setSelectedMetric(revealedMetrics[revealedMetrics.length - 1].metric);
+    }
+    previousRevealedCount.current = revealedMetrics.length;
+  }, [revealedMetrics]);
+
   const data = buildChartData(hints, revealedMetrics, trackNames);
   const chartWidth = Math.max(MIN_CHART_WIDTH, data.length * PX_PER_TRACK);
 
@@ -173,7 +186,10 @@ export default function GameChart({ hints, revealedMetrics, trackNames }: GameCh
       <div className={styles.scrollArea} data-testid="game-chart">
         <div style={{ width: chartWidth }}>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={data} margin={{ top: 28, right: 48, left: 40, bottom: 8 }}>
+            <LineChart
+              data={data}
+              margin={{ top: CHART_TOP_MARGIN, right: 48, left: 40, bottom: 8 }}
+            >
               <CartesianGrid stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="trackNumber"

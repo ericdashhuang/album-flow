@@ -6,8 +6,9 @@ const ALL_METRICS: (HintMetric | "vibe_score")[] = ["vibe_score", ...HINT_METRIC
 
 interface MetricGlossaryProps {
   /** Metrics unlocked so far this round. Omit (or pass all of them) once the
-   * round is over - every metric is always listed, this only controls the
-   * "not yet revealed" treatment while a round is in progress. */
+   * round is over. Every metric's description always renders at full,
+   * normal opacity regardless of reveal state - this only controls whether
+   * the "Not yet revealed" badge shows next to a term. */
   revealedMetrics: HintMetric[];
 }
 
@@ -21,7 +22,7 @@ export default function MetricGlossary({ revealedMetrics }: MetricGlossaryProps)
         {ALL_METRICS.map((metric) => {
           const unlocked = metric === "vibe_score" || revealedSet.has(metric);
           return (
-            <div key={metric} className={unlocked ? styles.itemUnlocked : styles.itemLocked}>
+            <div key={metric} className={styles.item}>
               <dt className={styles.term}>
                 {ALL_METRIC_LABELS[metric]}
                 {!unlocked && <span className={styles.lockedBadge}>Not yet revealed</span>}
