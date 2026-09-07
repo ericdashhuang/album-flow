@@ -40,6 +40,15 @@ Field mapping onto this project's VibeOut/TrackVibe shape:
   - `tempo_bpm` maps directly from ReccoBeats' `tempo`.
   - `vibe_score` mirrors the librosa fallback's own formula: the mean of
     `energy` and `brightness` (here, valence).
+  - `danceability`, `acousticness`, `instrumentalness`, `speechiness`,
+    `loudness`, `key`, and `mode` map directly from ReccoBeats' own
+    identically-named fields - confirmed present in the real
+    `/audio-features` response. These have no librosa-fallback equivalent
+    (see app/vibe_analysis.py), so they're only ever set on
+    `source == "reccobeats"` rows; a track analyzed via librosa instead
+    simply has them as None. They're also read defensively here (missing ->
+    None) rather than with direct key access, in case a given ReccoBeats
+    entry doesn't have full coverage for a track.
 
 A track ReccoBeats has no data for (empty `/v1/track` result, or a 404 from
 `/audio-features`) is not an error - `get_track_vibe` returns None so the
@@ -72,6 +81,16 @@ class ReccoBeatsError(Exception):
     """
 
 
+def _optional_float(data: dict, field: str) -> float | None:
+    value = data.get(field)
+    return None if value is None else float(value)
+
+
+def _optional_int(data: dict, field: str) -> int | None:
+    value = data.get(field)
+    return None if value is None else int(value)
+
+
 def _vibe_features_from_audio_features(data: dict) -> dict:
     energy = float(data["energy"])
     valence = float(data["valence"])
@@ -83,6 +102,13 @@ def _vibe_features_from_audio_features(data: dict) -> dict:
         "brightness": round(valence, 4),
         "tempo_bpm": round(tempo, 2),
         "source": SOURCE_LABEL,
+        "danceability": _optional_float(data, "danceability"),
+        "acousticness": _optional_float(data, "acousticness"),
+        "instrumentalness": _optional_float(data, "instrumentalness"),
+        "speechiness": _optional_float(data, "speechiness"),
+        "loudness": _optional_float(data, "loudness"),
+        "key": _optional_int(data, "key"),
+        "mode": _optional_int(data, "mode"),
     }
 
 

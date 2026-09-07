@@ -7,6 +7,17 @@
   --accent: #1db954;
   --accent-contrast: #ffffff;
   --error: #c4372b;
+
+  /* Chart series colors for the game's revealed metrics, in fixed reveal
+     order (danceability -> key). --accent (Spotify green) is reserved for
+     the always-visible base vibe-score line, so these skip the palette's
+     green/red slots to avoid colliding with --accent/--error. */
+  --chart-danceability: #2a78d6;
+  --chart-acousticness: #eb6834;
+  --chart-instrumentalness: #1baf7a;
+  --chart-speechiness: #eda100;
+  --chart-loudness: #e87ba4;
+  --chart-key: #4a3aa7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +30,13 @@
     --accent: #1db954;
     --accent-contrast: #0a0a0a;
     --error: #ff6b5e;
+
+    --chart-danceability: #3987e5;
+    --chart-acousticness: #d95926;
+    --chart-instrumentalness: #199e70;
+    --chart-speechiness: #c98500;
+    --chart-loudness: #d55181;
+    --chart-key: #9085e9;
   }
 
   html {

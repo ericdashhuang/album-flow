@@ -1,4 +1,5 @@
 import time
+from urllib.parse import quote
 
 import httpx
 
@@ -63,20 +64,28 @@ class SpotifyClient:
         self._token_expires_at = time.monotonic() + expires_in - _EXPIRY_SAFETY_MARGIN_SECONDS
         return self._token
 
+    async def _handle_response(self, response: httpx.Response, description: str) -> dict:
+        if response.status_code == 404:
+            raise SpotifyNotFoundError(f"Spotify resource not found: {description}")
+        if response.status_code == 429:
+            retry_after = response.headers.get("Retry-After")
+            raise SpotifyRateLimitedError(int(retry_after) if retry_after else None)
+        response.raise_for_status()
+        return response.json()
+
     async def _get(self, path: str) -> dict:
         token = await self._get_access_token()
         response = await self._http.get(
             f"{API_BASE}{path}",
             headers={"Authorization": f"Bearer {token}"},
         )
+        return await self._handle_response(response, path)
 
-        if response.status_code == 404:
-            raise SpotifyNotFoundError(f"Spotify resource not found: {path}")
-        if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            raise SpotifyRateLimitedError(int(retry_after) if retry_after else None)
-        response.raise_for_status()
-        return response.json()
+    async def _get_absolute(self, url: str) -> dict:
+        """Follow a full URL from a paginated response's `next` field."""
+        token = await self._get_access_token()
+        response = await self._http.get(url, headers={"Authorization": f"Bearer {token}"})
+        return await self._handle_response(response, url)
 
     async def get_album(self, album_id: str) -> dict:
         return await self._get(f"/albums/{album_id}")
@@ -89,3 +98,26 @@ class SpotifyClient:
 
     async def get_playlist_items(self, playlist_id: str, limit: int = 100) -> dict:
         return await self._get(f"/playlists/{playlist_id}/items?limit={limit}")
+
+    async def search_artist(self, name: str) -> dict:
+        return await self._get(f"/search?q={quote(name)}&type=artist&limit=1")
+
+    async def get_artist_albums(self, artist_id: str, limit: int = 10) -> dict:
+        # include_groups=album excludes singles, compilations, and
+        # "appears on" credits, leaving only the artist's real studio albums.
+        #
+        # Confirmed live against the real API: despite Spotify's docs
+        # suggesting `limit` can go up to 50 for this endpoint, any value
+        # above 10 is rejected with a 400 "Invalid limit". Pages are
+        # followed via the response's `next` link so a prolific artist's
+        # full studio catalog is still collected, not just its first 10.
+        first_page = await self._get(
+            f"/artists/{artist_id}/albums?include_groups=album&limit={limit}"
+        )
+        items = list(first_page.get("items", []))
+        next_url = first_page.get("next")
+        while next_url:
+            page = await self._get_absolute(next_url)
+            items.extend(page.get("items", []))
+            next_url = page.get("next")
+        return {"items": items}

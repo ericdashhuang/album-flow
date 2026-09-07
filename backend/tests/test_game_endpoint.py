@@ -1,0 +1,203 @@
+import json
+from unittest.mock import patch
+
+import respx
+from httpx import Response
+
+TOKEN_RESPONSE = {"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600}
+
+ARTIST_ID = "artist-xyz"
+ALBUM_TARGET = "album-target"
+ALBUM_B = "album-b"
+ALBUM_C = "album-c"
+
+TARGET_ALBUM_NAME = "Secret Album Name"
+SECRET_TRACK_NAMES = ["Secret Track One", "Secret Track Two", "Secret Track Three"]
+
+
+def _mock_token(router: respx.MockRouter) -> None:
+    router.post("https://accounts.spotify.com/api/token").mock(
+        return_value=Response(200, json=TOKEN_RESPONSE)
+    )
+
+
+def _mock_search(router: respx.MockRouter) -> None:
+    router.get(url__regex=r"https://api\.spotify\.com/v1/search\?.*").mock(
+        return_value=Response(
+            200, json={"artists": {"items": [{"id": ARTIST_ID, "name": "Test Artist"}]}}
+        )
+    )
+
+
+def _mock_albums(router: respx.MockRouter) -> None:
+    router.get(url__regex=rf"https://api\.spotify\.com/v1/artists/{ARTIST_ID}/albums.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": ALBUM_TARGET,
+                        "name": TARGET_ALBUM_NAME,
+                        "album_type": "album",
+                        "images": [{"url": "https://example.com/target.jpg"}],
+                    },
+                    {"id": ALBUM_B, "name": "Other Album", "album_type": "album", "images": []},
+                    {"id": ALBUM_C, "name": "Third Album", "album_type": "album", "images": []},
+                ]
+            },
+        )
+    )
+
+
+def _mock_album_tracks(router: respx.MockRouter, album_id: str, tracks: list[dict]) -> None:
+    router.get(url__regex=rf"https://api\.spotify\.com/v1/albums/{album_id}/tracks.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": track["id"],
+                        "name": track["name"],
+                        "artists": [{"name": "Test Artist"}],
+                        "duration_ms": 200000,
+                        "track_number": i + 1,
+                        "preview_url": None,
+                    }
+                    for i, track in enumerate(tracks)
+                ]
+            },
+        )
+    )
+
+
+def _mock_reccobeats_any(router: respx.MockRouter) -> None:
+    router.get(url__regex=r"https://api\.reccobeats\.com/v1/track\?.*").mock(
+        return_value=Response(200, json={"content": [{"id": "recco-id"}]})
+    )
+    router.get(url__regex=r"https://api\.reccobeats\.com/v1/track/.*/audio-features").mock(
+        return_value=Response(
+            200,
+            json={
+                "energy": 0.6,
+                "valence": 0.5,
+                "tempo": 120.0,
+                "danceability": 0.7,
+                "acousticness": 0.2,
+                "instrumentalness": 0.1,
+                "speechiness": 0.05,
+                "loudness": -6.0,
+                "key": 3,
+                "mode": 1,
+            },
+        )
+    )
+
+
+def _setup(router: respx.MockRouter) -> None:
+    _mock_token(router)
+    _mock_search(router)
+    _mock_albums(router)
+    _mock_album_tracks(
+        router, ALBUM_TARGET, [{"id": f"secret-{i}", "name": name} for i, name in enumerate(SECRET_TRACK_NAMES)]
+    )
+    _mock_album_tracks(router, ALBUM_B, [{"id": "b1", "name": "B Track"}])
+    _mock_album_tracks(router, ALBUM_C, [{"id": "c1", "name": "C Track"}])
+    _mock_reccobeats_any(router)
+
+
+@respx.mock
+@patch("app.game_service.random.shuffle", lambda seq: None)
+def test_round_lifecycle_never_leaks_target_before_reveal(client):
+    _setup(respx)
+
+    start_response = client.post("/api/game/rounds", json={"artist_name": "Test Artist"})
+    assert start_response.status_code == 200
+    start_body = start_response.json()
+    raw_start = json.dumps(start_body)
+
+    # Track names must never appear before reveal.
+    for name in SECRET_TRACK_NAMES:
+        assert name not in raw_start
+    # The album list legitimately shows all names (that's the whole guessing
+    # mechanic) but nothing in the payload may mark which one is correct.
+    option_names = {option["name"] for option in start_body["album_options"]}
+    assert option_names == {TARGET_ALBUM_NAME, "Other Album", "Third Album"}
+    assert all(set(hint.keys()) == {"track_number", "vibe_score"} for hint in start_body["hints"])
+
+    round_id = start_body["round_id"]
+
+    # Wrong guess #1: no hint yet, still no leakage.
+    wrong_1 = client.post(f"/api/game/rounds/{round_id}/guess", json={"album_spotify_id": ALBUM_B})
+    assert wrong_1.status_code == 200
+    wrong_1_body = wrong_1.json()
+    assert wrong_1_body["correct"] is False
+    assert wrong_1_body["newly_revealed_metric"] is None
+    for name in SECRET_TRACK_NAMES:
+        assert name not in json.dumps(wrong_1_body)
+
+    # Wrong guess #2: crosses the first hint threshold (danceability), still no leakage.
+    wrong_2 = client.post(f"/api/game/rounds/{round_id}/guess", json={"album_spotify_id": ALBUM_C})
+    assert wrong_2.status_code == 200
+    wrong_2_body = wrong_2.json()
+    assert wrong_2_body["wrong_guess_count"] == 2
+    assert wrong_2_body["newly_revealed_metric"]["metric"] == "danceability"
+    raw_wrong_2 = json.dumps(wrong_2_body)
+    for name in SECRET_TRACK_NAMES:
+        assert name not in raw_wrong_2
+    assert TARGET_ALBUM_NAME not in raw_wrong_2
+
+    # Reveal is refused before the round is solved.
+    early_reveal = client.post(f"/api/game/rounds/{round_id}/reveal")
+    assert early_reveal.status_code == 409
+
+    # Correct guess ends the round without leaking track names itself.
+    correct = client.post(
+        f"/api/game/rounds/{round_id}/guess", json={"album_spotify_id": ALBUM_TARGET}
+    )
+    assert correct.status_code == 200
+    correct_body = correct.json()
+    assert correct_body["correct"] is True
+    for name in SECRET_TRACK_NAMES:
+        assert name not in json.dumps(correct_body)
+
+    # Only now may the reveal step return the target's identity and track names.
+    reveal = client.post(f"/api/game/rounds/{round_id}/reveal")
+    assert reveal.status_code == 200
+    reveal_body = reveal.json()
+    assert reveal_body["album_name"] == TARGET_ALBUM_NAME
+    assert reveal_body["revealed_metrics"] == ["danceability"]
+    names_in_reveal = {track["name"] for track in reveal_body["tracks"]}
+    assert names_in_reveal == set(SECRET_TRACK_NAMES)
+
+
+@respx.mock
+def test_start_round_for_artist_with_too_few_albums_returns_422(client):
+    _mock_token(respx)
+    _mock_search(respx)
+    respx.get(url__regex=rf"https://api\.spotify\.com/v1/artists/{ARTIST_ID}/albums.*").mock(
+        return_value=Response(
+            200,
+            json={
+                "items": [
+                    {"id": "only-one", "name": "Only Album", "album_type": "album", "images": []},
+                ]
+            },
+        )
+    )
+
+    response = client.post("/api/game/rounds", json={"artist_name": "Test Artist"})
+
+    assert response.status_code == 422
+    assert "enough" in response.json()["detail"].lower()
+
+
+@respx.mock
+def test_start_round_for_unknown_artist_returns_404(client):
+    _mock_token(respx)
+    respx.get(url__regex=r"https://api\.spotify\.com/v1/search\?.*").mock(
+        return_value=Response(200, json={"artists": {"items": []}})
+    )
+
+    response = client.post("/api/game/rounds", json={"artist_name": "Nobody At All"})
+
+    assert response.status_code == 404

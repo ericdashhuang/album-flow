@@ -1,70 +1,188 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
 import Image from "next/image";
 import styles from "./page.module.css";
-import { formatDuration } from "./format";
-import EnergyArcChart from "./EnergyArcChart";
-import type { LookupResult } from "./types";
+import { ApiRequestError, revealRound, startRound, submitGuess } from "./api";
+import GameChart from "./GameChart";
+import { METRIC_LABELS } from "./metrics";
+import { METRIC_DESCRIPTIONS } from "./types";
+import type {
+  AlbumOption,
+  HintPoint,
+  RevealedMetric,
+  RevealResponse,
+} from "./types";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+type GameState = "landing" | "round" | "reveal";
+
+function revealedMetricsFromReveal(reveal: RevealResponse): RevealedMetric[] {
+  return reveal.revealed_metrics.map((metric) => ({
+    metric,
+    data: reveal.tracks.map((track) => ({
+      track_number: track.track_number,
+      value: (track[metric] as number | null | undefined) ?? null,
+      mode: metric === "key" ? (track.mode ?? null) : null,
+    })),
+  }));
+}
+
+function hintsFromReveal(reveal: RevealResponse): HintPoint[] {
+  return reveal.tracks.map((track) => ({
+    track_number: track.track_number,
+    vibe_score: track.vibe_score,
+  }));
+}
+
+function trackNamesFromReveal(reveal: RevealResponse): Record<number, string> {
+  return Object.fromEntries(reveal.tracks.map((track) => [track.track_number, track.name]));
+}
 
 export default function Home() {
-  const [url, setUrl] = useState("");
-  const [result, setResult] = useState<LookupResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [gameState, setGameState] = useState<GameState>("landing");
+  const [artistInput, setArtistInput] = useState("");
+  const [artistName, setArtistName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const [roundId, setRoundId] = useState<string | null>(null);
+  const [albumOptions, setAlbumOptions] = useState<AlbumOption[]>([]);
+  const [eliminated, setEliminated] = useState<Set<string>>(new Set());
+  const [hints, setHints] = useState<HintPoint[]>([]);
+  const [revealedMetrics, setRevealedMetrics] = useState<RevealedMetric[]>([]);
+  const [wrongGuessCount, setWrongGuessCount] = useState(0);
+  const [trackCount, setTrackCount] = useState(0);
+  const [guessing, setGuessing] = useState(false);
+
+  const [reveal, setReveal] = useState<RevealResponse | null>(null);
+
+  function resetRoundState() {
+    setRoundId(null);
+    setAlbumOptions([]);
+    setEliminated(new Set());
+    setHints([]);
+    setRevealedMetrics([]);
+    setWrongGuessCount(0);
+    setTrackCount(0);
+    setReveal(null);
+  }
+
+  async function beginRound(name: string) {
     setLoading(true);
     setError(null);
-    setResult(null);
+    resetRoundState();
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/lookup?url=${encodeURIComponent(url)}`
-      );
-      const body = await response.json();
-
-      if (!response.ok) {
-        setError(body.detail ?? "Something went wrong looking that up.");
-        return;
+      const result = await startRound(name);
+      setRoundId(result.round_id);
+      setArtistName(result.artist_name);
+      setAlbumOptions(result.album_options);
+      setHints(result.hints);
+      setTrackCount(result.track_count);
+      setGameState("round");
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.status === 404) {
+          setError(
+            `Couldn't find an artist named "${name}" on Spotify. Check the spelling and try again.`
+          );
+        } else {
+          // Backend already phrases 422s ("not enough albums" / "no suitable
+          // album") as friendly, artist-specific sentences - show as-is.
+          setError(err.message);
+        }
+      } else {
+        setError("Couldn't reach the Album Flow backend. Is it running?");
       }
-
-      setResult(body as LookupResult);
-    } catch {
-      setError(
-        "Couldn't reach the Album Flow backend. Is it running?"
-      );
+      setGameState("landing");
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleStartSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = artistInput.trim();
+    if (!name) {
+      return;
+    }
+    await beginRound(name);
+  }
+
+  async function fetchReveal(giveUp: boolean) {
+    if (!roundId) {
+      return;
+    }
+    try {
+      const result = await revealRound(roundId, giveUp);
+      setReveal(result);
+      setGameState("reveal");
+    } catch {
+      setError("Couldn't load the reveal for this round. Please try again.");
+    }
+  }
+
+  async function handleGuess(albumSpotifyId: string) {
+    if (!roundId || guessing) {
+      return;
+    }
+    setGuessing(true);
+    setError(null);
+
+    try {
+      const result = await submitGuess(roundId, albumSpotifyId);
+      if (result.correct) {
+        await fetchReveal(false);
+        return;
+      }
+
+      setWrongGuessCount(result.wrong_guess_count);
+      setEliminated((prev) => new Set(prev).add(albumSpotifyId));
+      if (result.newly_revealed_metric) {
+        const metric = result.newly_revealed_metric;
+        setRevealedMetrics((prev) => [...prev, metric]);
+      }
+    } catch {
+      setError("Couldn't submit that guess. Please try again.");
+    } finally {
+      setGuessing(false);
+    }
+  }
+
+  function handleNewArtist() {
+    resetRoundState();
+    setArtistName(null);
+    setArtistInput("");
+    setError(null);
+    setGameState("landing");
+  }
+
+  const remainingOptions = albumOptions.filter((option) => !eliminated.has(option.spotify_id));
 
   return (
     <div className={styles.page}>
       <main className={styles.main}>
         <h1 className={styles.title}>Album Flow</h1>
         <p className={styles.subtitle}>
-          Paste a Spotify album or playlist link to see its tracklist.
+          Guess the album from its unlabeled vibe chart, one track at a time.
         </p>
 
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <input
-            className={styles.input}
-            type="text"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://open.spotify.com/album/..."
-            aria-label="Spotify album or playlist URL"
-            required
-          />
-          <button className={styles.button} type="submit" disabled={loading}>
-            {loading ? "Looking up..." : "Look up"}
-          </button>
-        </form>
+        {gameState === "landing" && (
+          <form className={styles.form} onSubmit={handleStartSubmit}>
+            <input
+              className={styles.input}
+              type="text"
+              value={artistInput}
+              onChange={(event) => setArtistInput(event.target.value)}
+              placeholder="Artist name, e.g. Radiohead"
+              aria-label="Artist name"
+              required
+            />
+            <button className={styles.button} type="submit" disabled={loading}>
+              {loading ? "Starting..." : "Start guessing"}
+            </button>
+          </form>
+        )}
 
         {error && (
           <p className={styles.error} role="alert">
@@ -72,50 +190,105 @@ export default function Home() {
           </p>
         )}
 
-        {result && (
+        {gameState === "round" && (
+          <section className={styles.result}>
+            <div>
+              <h2 className={styles.resultTitle}>Guess the {artistName} album</h2>
+              <p className={styles.resultMeta}>
+                {trackCount} tracks · {wrongGuessCount}{" "}
+                {wrongGuessCount === 1 ? "wrong guess" : "wrong guesses"}
+              </p>
+            </div>
+
+            <GameChart hints={hints} revealedMetrics={revealedMetrics} />
+
+            <ul className={styles.optionList}>
+              {remainingOptions.map((option) => (
+                <li key={option.spotify_id}>
+                  <button
+                    className={styles.optionButton}
+                    onClick={() => handleGuess(option.spotify_id)}
+                    disabled={guessing}
+                  >
+                    {option.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              className={styles.giveUpButton}
+              type="button"
+              onClick={() => fetchReveal(true)}
+              disabled={guessing}
+            >
+              Give up &amp; reveal the answer
+            </button>
+          </section>
+        )}
+
+        {gameState === "reveal" && reveal && (
           <section className={styles.result}>
             <div className={styles.resultHeader}>
-              {result.cover_art_url && (
+              {reveal.album_image_url && (
                 <Image
                   className={styles.coverArt}
-                  src={result.cover_art_url}
-                  alt={`${result.name} cover art`}
+                  src={reveal.album_image_url}
+                  alt={`${reveal.album_name} cover art`}
                   width={160}
                   height={160}
                   unoptimized
                 />
               )}
               <div>
-                <h2 className={styles.resultTitle}>{result.name}</h2>
-                <p className={styles.resultOwner}>{result.owner}</p>
-                <p className={styles.resultMeta}>
-                  {result.item_type === "album" ? "Album" : "Playlist"} ·{" "}
-                  {result.tracks.length} tracks
-                </p>
+                <h2 className={styles.resultTitle}>{reveal.album_name}</h2>
+                <p className={styles.resultOwner}>{reveal.artist_name}</p>
               </div>
             </div>
 
-            <EnergyArcChart tracks={result.tracks} />
+            <GameChart
+              hints={hintsFromReveal(reveal)}
+              revealedMetrics={revealedMetricsFromReveal(reveal)}
+              trackNames={trackNamesFromReveal(reveal)}
+            />
 
             <ol className={styles.trackList}>
-              {result.tracks.map((track) => (
-                <li
-                  key={`${track.track_number}-${track.name}`}
-                  className={styles.track}
-                >
-                  <span className={styles.trackNumber}>
-                    {track.track_number}
-                  </span>
-                  <span className={styles.trackText}>
-                    <span className={styles.trackName}>{track.name}</span>
-                    <span className={styles.trackArtist}>{track.artist}</span>
-                  </span>
-                  <span className={styles.trackDuration}>
-                    {formatDuration(track.duration_ms)}
-                  </span>
+              {reveal.tracks.map((track) => (
+                <li key={track.track_number} className={styles.track}>
+                  <span className={styles.trackNumber}>{track.track_number}</span>
+                  <span className={styles.trackName}>{track.name}</span>
                 </li>
               ))}
             </ol>
+
+            <section className={styles.glossary} aria-label="Metric glossary">
+              <h3 className={styles.glossaryTitle}>What do these metrics mean?</h3>
+              <dl className={styles.glossaryList}>
+                <dt className={styles.glossaryTerm}>Vibe score</dt>
+                <dd className={styles.glossaryDescription}>{METRIC_DESCRIPTIONS.vibe_score}</dd>
+                {reveal.revealed_metrics.map((metric) => (
+                  <Fragment key={metric}>
+                    <dt className={styles.glossaryTerm}>{METRIC_LABELS[metric]}</dt>
+                    <dd className={styles.glossaryDescription}>
+                      {METRIC_DESCRIPTIONS[metric]}
+                    </dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </section>
+
+            <div className={styles.playAgainRow}>
+              <button
+                className={styles.button}
+                type="button"
+                onClick={() => artistName && beginRound(artistName)}
+              >
+                Play again ({artistName})
+              </button>
+              <button className={styles.secondaryButton} type="button" onClick={handleNewArtist}>
+                Try a different artist
+              </button>
+            </div>
           </section>
         )}
       </main>
