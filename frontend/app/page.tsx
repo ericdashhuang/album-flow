@@ -14,6 +14,7 @@ import type {
   RevealedMetric,
   RevealResponse,
 } from "./types";
+import { HINT_METRIC_ORDER } from "./types";
 
 type GameState = "landing" | "round" | "reveal";
 
@@ -289,7 +290,7 @@ export default function Home() {
               </div>
             </section>
 
-            <MetricGlossary revealedMetrics={reveal.revealed_metrics} />
+            <MetricGlossary revealedMetrics={HINT_METRIC_ORDER} />
           </div>
         )}
       </main>

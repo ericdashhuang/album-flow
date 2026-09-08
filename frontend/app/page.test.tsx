@@ -294,4 +294,24 @@ describe("reveal state", () => {
     expect(screen.getByRole("button", { name: /play again/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /try a different artist/i })).toBeInTheDocument();
   });
+
+  test("marks every metric as revealed once the round is over, even with fewer guesses than metrics", async () => {
+    (startRound as Mock).mockResolvedValueOnce(START_ROUND_RESULT);
+    // revealed_metrics reflects only what guess-count milestones unlocked mid-round
+    // (a single wrong guess here), well short of every metric the game tracks.
+    (revealRound as Mock).mockResolvedValueOnce(REVEAL_RESULT);
+
+    await startAGame();
+    fireEvent.click(screen.getByRole("button", { name: /give up/i }));
+
+    expect(await screen.findByRole("heading", { name: "Album A" })).toBeInTheDocument();
+
+    const glossary = screen.getByLabelText(/metric glossary/i);
+    expect(glossary).not.toHaveTextContent(/not yet revealed/i);
+    expect(glossary).toHaveTextContent("Acousticness");
+    expect(glossary).toHaveTextContent("Instrumentalness");
+    expect(glossary).toHaveTextContent("Speechiness");
+    expect(glossary).toHaveTextContent("Loudness");
+    expect(glossary).toHaveTextContent("Key");
+  });
 });
