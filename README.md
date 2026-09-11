@@ -1,10 +1,8 @@
-# Soundprint
+# Album Flow
 
 An artist album-guessing game.
 Type an artist's name and the app secretly picks one of their real albums.
 Each wrong guess eliminates an album and reveals one more per-track audio metric as a chart line; a correct guess reveals the track names and a glossary of every metric.
-
-Live demo: not yet deployed under this name - see `DEPLOYMENT.md` for the manual Render dashboard step required after this rename before a fresh URL is live.
 
 ## Project structure
 
