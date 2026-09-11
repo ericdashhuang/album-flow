@@ -18,7 +18,7 @@ The backend's `DATABASE_URL` is wired automatically from the database resource; 
 
 ## 3. Fill in the two Spotify secrets
 
-`render.yaml` marks `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` as `sync: false`, so Render will prompt for them during the apply step (or you can set them afterward under `album-flow-backend` > **Environment**).
+`render.yaml` marks `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` as `sync: false`, so Render prompts for them during apply (or you can set them afterward under `album-flow-backend` > **Environment**).
 
 Get real values from a Spotify developer app at <https://developer.spotify.com/dashboard> (Client Credentials flow only - no redirect URI or user login needed).
 Without real values the backend still boots, but any Spotify-backed request fails with a 502.
