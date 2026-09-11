@@ -1,11 +1,15 @@
-# Album Flow
+# Soundprint
 
-Paste a Spotify album or playlist link and see its energy arc: a chart of the computed vibe/energy signal across the tracks, plus the tracklist.
+An artist album-guessing game.
+Type an artist's name and the app secretly picks one of their real albums.
+Each wrong guess eliminates an album and reveals one more per-track audio metric as a chart line; a correct guess reveals the track names and a glossary of every metric.
+
+Live demo: not yet deployed under this name - see `DEPLOYMENT.md` for the manual Render dashboard step required after this rename before a fresh URL is live.
 
 ## Project structure
 
-- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, no user login), computes a per-track vibe/energy score (primarily via ReccoBeats, falling back to 30-second preview clips when ReccoBeats has no match), and exposes `GET /api/lookup`.
-- `frontend/` - Next.js (App Router) app with a single page: paste a link, see the energy-arc chart (Recharts) and tracklist.
+- `backend/` - FastAPI service that talks to the Spotify Web API (Client Credentials flow, app-level auth only, no user login), orchestrates each round server-side (`app/game_service.py`), computes a per-track vibe score for each metric (primarily via ReccoBeats, falling back to 30-second preview clips plus librosa when ReccoBeats has no match), and exposes the `/api/game/*` endpoints.
+- `frontend/` - Next.js (App Router) app: an artist search box, a chart (`GameChart.tsx`) that reveals one metric line at a time as guesses go wrong, and a metric glossary (`MetricGlossary.tsx`) shown from round start.
 - `docker-compose.yml` - local Postgres for backend development.
 - `render.yaml` - Render Blueprint for deploying both services plus a managed Postgres database. See `DEPLOYMENT.md` for the remaining manual steps.
 
@@ -16,7 +20,7 @@ Paste a Spotify album or playlist link and see its energy arc: a chart of the co
 - Docker (for local Postgres), or any Postgres instance you point `DATABASE_URL` at.
 - A Spotify developer app.
 Create one at https://developer.spotify.com/dashboard to get a real `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.
-Until you have real credentials, the backend runs fine with the placeholder values in `.env.example` - lookups against real Spotify data will just fail with a 502 until real credentials are set.
+Until you have real credentials, the backend runs fine with the placeholder values in `.env.example` - starting a round against real Spotify data will just fail with a 502 until real credentials are set.
 
 ## Running the backend
 
@@ -38,7 +42,7 @@ uvicorn app.main:app --reload --port 8000
 The API is now at `http://localhost:8000`.
 Interactive docs are at `http://localhost:8000/docs`.
 
-Run the backend test suite (no live Spotify calls; all HTTP calls are mocked):
+Run the backend test suite (no live Spotify or ReccoBeats calls; all HTTP calls are mocked):
 
 ```bash
 cd backend
@@ -64,12 +68,19 @@ cd frontend
 npm test
 ```
 
+## Tech stack
+
+- **Backend**: Python, FastAPI, SQLModel, Postgres (SQLite in-memory for tests).
+- **Frontend**: TypeScript, Next.js (App Router), Recharts.
+- **Deployment**: Render, via the `render.yaml` Blueprint.
+
 ## Known constraints
 
-- No user login: every visitor gets the same experience against public Spotify albums/playlists.
-Spotify's Development Mode quota for new apps makes a personalized-login flow impractical for a solo project.
-- Spotify's `audio-features`/`audio-analysis` endpoints are gone for new apps, so the vibe/energy score comes from ReccoBeats (a free, keyless third-party API - see `backend/app/reccobeats_client.py`) as the primary source, with the original 30-second-preview-clip-plus-librosa analysis (`backend/app/vibe_analysis.py`) kept as a fallback for whenever ReccoBeats has no data for a track.
-ReccoBeats became primary because a track's `preview_url` has turned out to be null far more often in practice than originally assumed - real-world testing across several major albums found zero available preview clips - so the preview-dependent path alone was no longer a reliable primary source.
+- No user login: every visitor plays against the same server-side game state, resolved by artist name/ID against public Spotify catalog data.
+Spotify's Development Mode quota for new apps makes a personalized-login flow impractical for a solo project, so the app authenticates to Spotify only at the app level (Client Credentials flow).
+- Spotify's `audio-features`/`audio-analysis` endpoints are gone for apps registered after 2024-11-27, so per-track vibe metrics come from ReccoBeats (a free, keyless third-party API keyed by Spotify track ID - see `backend/app/reccobeats_client.py`) as the primary source, with 30-second-preview-clip-plus-librosa analysis (`backend/app/vibe_analysis.py`) kept as a fallback for whenever ReccoBeats has no data for a track.
+ReccoBeats is primary because a track's `preview_url` has turned out to be null far more often in practice than originally assumed - real-world testing across several major albums found zero available preview clips - so the preview-dependent path alone is not a reliable primary source.
 See the docstring at the top of `backend/app/reccobeats_client.py` for the exact API contract and field-mapping rationale, and `backend/app/vibe_analysis.py` for why librosa was used for the fallback instead of Essentia's pretrained mood classifiers.
-- If both ReccoBeats and the preview+librosa fallback come up empty for a track, `vibe` is `null` in the API response for that track instead of failing the whole lookup.
-- Computed vibes are cached in Postgres by Spotify track ID (`TrackVibe` in `backend/app/models.py`), so the same track is never re-analyzed across different album/playlist lookups, regardless of which source produced it.
+- If both ReccoBeats and the preview+librosa fallback come up empty for a track, that track's `vibe` is `null` in the API response instead of failing the round.
+- Computed vibes are cached in Postgres by Spotify track ID (`TrackVibe` in `backend/app/models.py`), so the same track is never re-analyzed across different albums or rounds, regardless of which source produced it.
+- Round state (the secret target album, its track names, and the cumulative list of wrong-guessed albums) is held server-side in the `GameRound` table and is server-authoritative: no in-progress-round API response ever includes the target's identity or a track name.

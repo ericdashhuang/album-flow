@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     spotify_client_id: str
     spotify_client_secret: str
-    database_url: str = "postgresql+psycopg://album_flow:album_flow@localhost:5432/album_flow"
+    database_url: str = "postgresql+psycopg://soundprint:soundprint@localhost:5432/soundprint"
     cors_origins: str = "http://localhost:3000"
 
     @property
