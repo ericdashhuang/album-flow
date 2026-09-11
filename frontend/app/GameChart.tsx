@@ -68,19 +68,21 @@ export function buildChartData(
   return Array.from(points.values()).sort((a, b) => a.trackNumber - b.trackNumber);
 }
 
-function valueForMetric(point: ChartDataPoint, metric: ChartMetric): number | null {
+export function valueForMetric(point: ChartDataPoint, metric: ChartMetric): number | null {
   if (metric === "vibe_score") {
     return point.vibeScore;
   }
+  if (metric === "key") {
+    const rawKey = point.metricValues.key;
+    const mode = point.metricModes.key;
+    if (rawKey === undefined || rawKey === null || mode === undefined || mode === null) {
+      return null;
+    }
+    const magnitude = rawKey + 1;
+    return mode === 0 ? -magnitude : magnitude;
+  }
   const raw = point.metricValues[metric];
   return raw === undefined ? null : raw;
-}
-
-function modeForMetric(point: ChartDataPoint, metric: ChartMetric): number | null {
-  if (metric === "key") {
-    return point.metricModes.key ?? null;
-  }
-  return null;
 }
 
 function truncateTitle(title: string, max = 14): string {
@@ -136,7 +138,7 @@ function ChartTooltip({ active, label, payload, metric }: ChartTooltipProps) {
       <p className={styles.tooltipRow}>
         <span className={styles.tooltipSwatch} style={{ background: METRIC_COLORS[metric] }} />
         {ALL_METRIC_LABELS[metric]}:{" "}
-        {value === null ? "No data" : formatMetricValue(metric, value, modeForMetric(point, metric))}
+        {value === null ? "No data" : formatMetricValue(metric, value)}
       </p>
     </div>
   );

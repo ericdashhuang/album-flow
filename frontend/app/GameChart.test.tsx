@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import GameChart, { buildChartData } from "./GameChart";
+import GameChart, { buildChartData, valueForMetric } from "./GameChart";
+import { formatMetricAxisTick, formatMetricValue } from "./metrics";
 import type { HintPoint, RevealedMetric } from "./types";
 
 const hints: HintPoint[] = [
@@ -59,20 +60,20 @@ describe("GameChart", () => {
   test("renders only the base vibe-score toggle when no metric is revealed yet", () => {
     render(<GameChart hints={hints} revealedMetrics={[]} />);
     expect(screen.getByTestId("game-chart")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /energy level/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /danceability/i })).not.toBeInTheDocument();
   });
 
   test("adds a toggle for each newly revealed metric", () => {
     render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /energy level/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /danceability/i })).toBeInTheDocument();
   });
 
   test("shows one metric's line at a time, switching which is active on toggle click", () => {
     render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
 
-    const vibeTab = screen.getByRole("tab", { name: /vibe score/i });
+    const vibeTab = screen.getByRole("tab", { name: /energy level/i });
     const danceabilityTab = screen.getByRole("tab", { name: /danceability/i });
 
     expect(vibeTab).toHaveAttribute("aria-selected", "true");
@@ -86,7 +87,7 @@ describe("GameChart", () => {
 
   test("auto-switches the active tab to a newly revealed metric", async () => {
     const { rerender } = render(<GameChart hints={hints} revealedMetrics={[]} />);
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /energy level/i })).toHaveAttribute(
       "aria-selected",
       "true"
     );
@@ -99,7 +100,7 @@ describe("GameChart", () => {
         "true"
       )
     );
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /energy level/i })).toHaveAttribute(
       "aria-selected",
       "false"
     );
@@ -109,8 +110,8 @@ describe("GameChart", () => {
     const { rerender } = render(<GameChart hints={hints} revealedMetrics={revealedMetrics} />);
 
     // Player manually switches back to vibe score after danceability unlocked.
-    fireEvent.click(screen.getByRole("tab", { name: /vibe score/i }));
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+    fireEvent.click(screen.getByRole("tab", { name: /energy level/i }));
+    expect(screen.getByRole("tab", { name: /energy level/i })).toHaveAttribute(
       "aria-selected",
       "true"
     );
@@ -118,9 +119,65 @@ describe("GameChart", () => {
     // Re-rendering with an equal-length revealedMetrics array (a new
     // reference, but no *new* metric) must not snap the tab back.
     rerender(<GameChart hints={hints} revealedMetrics={[...revealedMetrics]} />);
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /energy level/i })).toHaveAttribute(
       "aria-selected",
       "true"
     );
+  });
+});
+
+describe("key metric signed encoding", () => {
+  test("valueForMetric encodes major as positive and minor as negative, magnitude = pitch class + 1", () => {
+    const cMajor = {
+      trackNumber: 1,
+      vibeScore: null,
+      metricValues: { key: 0 },
+      metricModes: { key: 1 },
+    };
+    const cMinor = {
+      trackNumber: 2,
+      vibeScore: null,
+      metricValues: { key: 0 },
+      metricModes: { key: 0 },
+    };
+    const bMajor = {
+      trackNumber: 3,
+      vibeScore: null,
+      metricValues: { key: 11 },
+      metricModes: { key: 1 },
+    };
+    const bMinor = {
+      trackNumber: 4,
+      vibeScore: null,
+      metricValues: { key: 11 },
+      metricModes: { key: 0 },
+    };
+    const missingMode = {
+      trackNumber: 5,
+      vibeScore: null,
+      metricValues: { key: 3 },
+      metricModes: {},
+    };
+
+    expect(valueForMetric(cMajor, "key")).toBe(1);
+    expect(valueForMetric(cMinor, "key")).toBe(-1);
+    expect(valueForMetric(bMajor, "key")).toBe(12);
+    expect(valueForMetric(bMinor, "key")).toBe(-12);
+    expect(valueForMetric(missingMode, "key")).toBeNull();
+  });
+
+  test("formatMetricValue decodes the signed value back into note name + mode", () => {
+    expect(formatMetricValue("key", 1)).toBe("C major");
+    expect(formatMetricValue("key", -1)).toBe("C minor");
+    expect(formatMetricValue("key", 2)).toBe("C♯ major");
+    expect(formatMetricValue("key", 12)).toBe("B major");
+    expect(formatMetricValue("key", -12)).toBe("B minor");
+  });
+
+  test("formatMetricAxisTick renders a readable note label, marking minor with a trailing 'm'", () => {
+    expect(formatMetricAxisTick("key", 1)).toBe("C");
+    expect(formatMetricAxisTick("key", -1)).toBe("Cm");
+    expect(formatMetricAxisTick("key", 12)).toBe("B");
+    expect(formatMetricAxisTick("key", -12)).toBe("Bm");
   });
 });
