@@ -1,4 +1,4 @@
-# Render Blueprint for Album Flow.
+# Render Blueprint for Soundprint.
 #
 # Deploy by connecting this repo in the Render dashboard and applying this
 # blueprint. See DEPLOYMENT.md for the remaining manual steps (Render
@@ -17,14 +17,14 @@
 # service or attach a custom domain, update both values to match.
 
 databases:
-  - name: album-flow-db
+  - name: soundprint-db
     plan: free
-    databaseName: album_flow
-    user: album_flow
+    databaseName: soundprint
+    user: soundprint
 
 services:
   - type: web
-    name: album-flow-backend
+    name: soundprint-backend
     runtime: python
     rootDir: backend
     plan: free
@@ -34,17 +34,17 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: album-flow-db
+          name: soundprint-db
           property: connectionString
       - key: SPOTIFY_CLIENT_ID
         sync: false
       - key: SPOTIFY_CLIENT_SECRET
         sync: false
       - key: CORS_ORIGINS
-        value: https://album-flow-frontend.onrender.com
+        value: https://soundprint-frontend.onrender.com
 
   - type: web
-    name: album-flow-frontend
+    name: soundprint-frontend
     runtime: node
     rootDir: frontend
     plan: free
@@ -52,4 +52,4 @@ services:
     startCommand: npm start
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://album-flow-backend.onrender.com
+        value: https://soundprint-backend.onrender.com

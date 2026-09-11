@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Album Flow API", lifespan=lifespan)
+app = FastAPI(title="Soundprint API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
