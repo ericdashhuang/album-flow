@@ -18,7 +18,7 @@ const NOTE_NAMES = [
 export type ChartMetric = HintMetric | "vibe_score";
 
 export const ALL_METRIC_LABELS: Record<ChartMetric, string> = {
-  vibe_score: "Vibe score",
+  vibe_score: "Energy level",
   danceability: "Danceability",
   acousticness: "Acousticness",
   instrumentalness: "Instrumentalness",
@@ -56,28 +56,35 @@ export const METRIC_Y_DOMAIN: Record<ChartMetric, [number, number] | undefined> 
   instrumentalness: [0, 1],
   speechiness: [0, 1],
   loudness: undefined,
-  key: [0, 11],
+  key: [-12, 12],
 };
 
-export function formatMetricValue(
-  metric: ChartMetric,
-  value: number,
-  mode: number | null | undefined
-): string {
+// Key is charted as a single signed value: sign = major (+) / minor (-),
+// magnitude = 1-indexed pitch class (C = 1 ... B = 12, i.e. raw Spotify
+// pitch class + 1). These helpers decode that back into a note name + mode.
+function decodeKeyValue(value: number): { noteName: string; modeName: "major" | "minor" } {
+  const magnitude = Math.round(Math.abs(value));
+  const pitchClass = (magnitude - 1 + NOTE_NAMES.length) % NOTE_NAMES.length;
+  const noteName = NOTE_NAMES[pitchClass] ?? "?";
+  const modeName = value < 0 ? "minor" : "major";
+  return { noteName, modeName };
+}
+
+export function formatMetricValue(metric: ChartMetric, value: number): string {
   if (metric === "loudness") {
     return `${value.toFixed(1)} dB`;
   }
   if (metric === "key") {
-    const noteName = NOTE_NAMES[Math.round(value) % NOTE_NAMES.length] ?? "?";
-    const modeName = mode === 0 ? "minor" : mode === 1 ? "major" : null;
-    return modeName ? `${noteName} ${modeName}` : noteName;
+    const { noteName, modeName } = decodeKeyValue(value);
+    return `${noteName} ${modeName}`;
   }
   return value.toFixed(2);
 }
 
 export function formatMetricAxisTick(metric: ChartMetric, value: number): string {
   if (metric === "key") {
-    return NOTE_NAMES[Math.round(value) % NOTE_NAMES.length] ?? "";
+    const { noteName, modeName } = decodeKeyValue(value);
+    return modeName === "minor" ? `${noteName}m` : noteName;
   }
   if (metric === "loudness") {
     return `${value.toFixed(0)} dB`;

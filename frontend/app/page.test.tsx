@@ -71,7 +71,7 @@ describe("landing state", () => {
     expect(screen.getByText("Album B")).toBeInTheDocument();
     expect(screen.getByText("Album C")).toBeInTheDocument();
     expect(screen.getByTestId("game-chart")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /vibe score/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /energy level/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /danceability/i })).not.toBeInTheDocument();
   });
 
@@ -260,7 +260,7 @@ describe("round state - metric glossary panel", () => {
     await startAGame();
 
     const glossary = screen.getByLabelText(/metric glossary/i);
-    expect(glossary).toHaveTextContent("Vibe score");
+    expect(glossary).toHaveTextContent("Energy level");
     expect(glossary).toHaveTextContent("Danceability");
     expect(glossary).toHaveTextContent("Key");
     expect(glossary).toHaveTextContent(/not yet revealed/i);
@@ -286,8 +286,8 @@ describe("reveal state", () => {
     expect(screen.getByText("Closer Track")).toBeInTheDocument();
 
     const glossary = screen.getByLabelText(/metric glossary/i);
-    expect(glossary).toHaveTextContent("Vibe score");
-    expect(glossary).toHaveTextContent(/blend of energy and musical positiveness/i);
+    expect(glossary).toHaveTextContent("Energy level");
+    expect(glossary).toHaveTextContent(/rating of valence and musical positiveness/i);
     expect(glossary).toHaveTextContent("Danceability");
     expect(glossary).toHaveTextContent(/suitable the track is for dancing/i);
 
