@@ -8,7 +8,7 @@ This doc covers only what the blueprint cannot automate: creating a Render accou
 
 1. Sign in (or sign up) at [dashboard.render.com](https://dashboard.render.com).
 2. Click **New > Blueprint**.
-3. Connect your GitHub account if you haven't already, then select `ericdashhuang/album-flow`.
+3. Connect your GitHub account if you haven't already, then select `ericdashhuang/soundprint`.
 4. Render reads `render.yaml` and shows a preview of the three resources it will create: `album-flow-backend`, `album-flow-frontend`, and `album-flow-db`.
 
 ## 2. Apply the blueprint
