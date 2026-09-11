@@ -261,7 +261,9 @@ async def search_artists(
     result = await client.search_artists(query, limit=limit)
     items = result.get("artists", {}).get("items", [])
     return [
-        ArtistSuggestion(spotify_id=item["id"], name=item["name"], image_url=_album_image_url(item))
+        ArtistSuggestion(
+            spotify_id=item["id"], name=item["name"], image_url=_album_image_url(item)
+        )
         for item in items
     ]
 

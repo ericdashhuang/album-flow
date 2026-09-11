@@ -18,7 +18,7 @@
 
 databases:
   - name: album-flow-db
-    plan: free
+    plan: "free"
     databaseName: album_flow
     user: album_flow
 
@@ -27,7 +27,7 @@ services:
     name: album-flow-backend
     runtime: python
     rootDir: backend
-    plan: free
+    plan: "free"
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
@@ -47,7 +47,7 @@ services:
     name: album-flow-frontend
     runtime: node
     rootDir: frontend
-    plan: free
+    plan: "free"
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
