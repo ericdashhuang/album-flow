@@ -21,7 +21,7 @@ const jetBrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "SoundPrint",
   description:
-    "Guess the album from its unlabeled energy chart, one track at a time.",
+    "Guess the album from its unlabeled energy chart.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

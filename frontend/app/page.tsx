@@ -175,7 +175,7 @@ export default function Home() {
         <div className={styles.header}>
           <h1 className={styles.title}>SoundPrint</h1>
           <p className={styles.subtitle}>
-            Guess the album from its unlabeled energy chart, one track at a time.
+            Guess the album from its unlabeled energy chart.
           </p>
         </div>
 

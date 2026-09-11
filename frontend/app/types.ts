@@ -57,11 +57,11 @@ export const METRIC_DESCRIPTIONS: Record<HintMetric | "vibe_score", string> = {
   vibe_score: "A 0-1 rating of valence and musical positiveness.",
   danceability:
     "How suitable the track is for dancing, based on rhythm and beat regularity.",
-  acousticness: "How acoustic/organic the track sounds versus electronic.",
-  instrumentalness: "How much of the song is instrumental.",
+  acousticness: "How acoustic the track sounds versus electronic.",
+  instrumentalness: "How much of the track is instrumental.",
   speechiness: "How much of the track is spoken versus sung.",
   loudness: "Overall loudness of the track, in decibels.",
-  key: "A positive or negative score based on whether the key is major (positive) or minor (negative), with the magnitude corresponding to the key itself (C = 1, C♯ = 2, ... B = 12).",
+  key: "A positive or negative score based on whether the key is major or minor.",
 };
 
 export interface AlbumOption {
