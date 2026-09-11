@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: soundprint
-      POSTGRES_PASSWORD: soundprint
-      POSTGRES_DB: soundprint
+      POSTGRES_USER: album_flow
+      POSTGRES_PASSWORD: album_flow
+      POSTGRES_DB: album_flow
     ports:
       - "5432:5432"
     volumes:
-      - soundprint_postgres_data:/var/lib/postgresql/data
+      - album_flow_postgres_data:/var/lib/postgresql/data
 
 volumes:
-  soundprint_postgres_data:
+  album_flow_postgres_data:

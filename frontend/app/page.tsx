@@ -95,7 +95,7 @@ export default function Home() {
           setError(err.message);
         }
       } else {
-        setError("Couldn't reach the Soundprint backend. Is it running?");
+        setError("Couldn't reach the Album Flow backend. Is it running?");
       }
       setGameState("landing");
     } finally {
@@ -173,7 +173,7 @@ export default function Home() {
     <div className={styles.page}>
       <main className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>Soundprint</h1>
+          <h1 className={styles.title}>Album Flow</h1>
           <p className={styles.subtitle}>
             Guess the album from its unlabeled vibe chart, one track at a time.
           </p>

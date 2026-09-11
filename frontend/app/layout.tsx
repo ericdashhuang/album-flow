@@ -19,7 +19,7 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Soundprint",
+  title: "Album Flow",
   description: "Guess the album from its unlabeled vibe chart, one track at a time.",
 };
 
