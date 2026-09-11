@@ -461,7 +461,7 @@ def reveal_round(session: Session, round_id: str, give_up: bool = False) -> Reve
         session.commit()
 
     tracks = sorted(json.loads(row.tracks_json), key=lambda t: t["track_number"])
-    revealed_metrics = HINT_METRIC_ORDER[: row.revealed_hint_level]
+    revealed_metrics = list(HINT_METRIC_ORDER)
 
     def _track_out(track: dict) -> dict:
         vibe = track["vibe"] or {}
