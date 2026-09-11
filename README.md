@@ -1,4 +1,4 @@
-# Album Flow
+# SoundPrint
 
 An artist album-guessing game.
 Type an artist's name and the app secretly picks one of their real albums.
