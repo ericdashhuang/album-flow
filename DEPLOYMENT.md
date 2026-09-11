@@ -9,7 +9,7 @@ This doc covers only what the blueprint cannot automate: creating a Render accou
 1. Sign in (or sign up) at [dashboard.render.com](https://dashboard.render.com).
 2. Click **New > Blueprint**.
 3. Connect your GitHub account if you haven't already, then select `ericdashhuang/soundprint`.
-4. Render reads `render.yaml` and shows a preview of the three resources it will create: `soundprint-backend`, `soundprint-frontend`, and `soundprint-db`.
+4. Render reads `render.yaml` and shows a preview of the three resources it will create: `play-soundprint-backend`, `play-soundprint-frontend`, and `play-soundprint-db`.
 
 ## 2. Apply the blueprint
 
@@ -18,7 +18,7 @@ The backend's `DATABASE_URL` is wired automatically from the database resource; 
 
 ## 3. Fill in the two Spotify secrets
 
-`render.yaml` marks `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` as `sync: false`, so Render will prompt for them during the apply step (or you can set them afterward under `soundprint-backend` > **Environment**).
+`render.yaml` marks `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` as `sync: false`, so Render will prompt for them during the apply step (or you can set them afterward under `play-soundprint-backend` > **Environment**).
 
 Get real values from a Spotify developer app at <https://developer.spotify.com/dashboard> (Client Credentials flow only - no redirect URI or user login needed).
 Without real values the backend still boots, but any Spotify-backed request fails with a 502.
@@ -27,14 +27,14 @@ Without real values the backend still boots, but any Spotify-backed request fail
 
 Once both services show **Live**:
 
-- Open the backend's health check: `https://soundprint-backend.onrender.com/api/health` should return `{"status": "ok"}`.
-- Open the frontend at `https://soundprint-frontend.onrender.com` and start a round to confirm it can reach the backend (check the browser console/network tab if it can't).
+- Open the backend's health check: `https://play-soundprint-backend.onrender.com/api/health` should return `{"status": "ok"}`.
+- Open the frontend at `https://play-soundprint-frontend.onrender.com` and start a round to confirm it can reach the backend (check the browser console/network tab if it can't).
 
 ## Notes and caveats
 
 - **Renaming here does not rename an already-deployed live service.** The `name:` fields in `render.yaml` only control what a blueprint sync creates or matches going forward.
 If services are already live under the old `album-flow-*` names, applying this renamed blueprint will not retroactively rename them - that requires a manual rename in the Render dashboard for each web service, and for the Postgres database, likely provisioning a fresh instance under the new name (Render generally does not support renaming a Postgres service in place).
 The existing database only holds regenerable cache/game-state data, so re-provisioning carries no real data-loss risk.
-- **Free-tier Postgres expires.** A `free`-plan Render Postgres database is deleted 30 days after creation (14-day grace period to upgrade first). Render emails you ahead of both deadlines. Upgrade the `soundprint-db` plan before then if you want to keep the data.
+- **Free-tier Postgres expires.** A `free`-plan Render Postgres database is deleted 30 days after creation (14-day grace period to upgrade first). Render emails you ahead of both deadlines. Upgrade the `play-soundprint-db` plan before then if you want to keep the data.
 - **Free-tier web services sleep.** Both services are on the `free` plan, which spins down after 15 minutes of inactivity; the first request after a period of idleness will be slow while it spins back up. Upgrade the plan on either service if that's not acceptable.
-- **Cross-service URLs are hardcoded, not templated.** Render's blueprint `fromService` reference only exposes a service's private-network host/port, not its public URL, so `render.yaml` hardcodes each service's `https://<name>.onrender.com` URL for the other to call/CORS-allow. If you rename `soundprint-backend` or `soundprint-frontend`, or attach a custom domain to either, update `CORS_ORIGINS` and `NEXT_PUBLIC_API_BASE_URL` in `render.yaml` (or directly in the dashboard) to match.
+- **Cross-service URLs are hardcoded, not templated.** Render's blueprint `fromService` reference only exposes a service's private-network host/port, not its public URL, so `render.yaml` hardcodes each service's `https://<name>.onrender.com` URL for the other to call/CORS-allow. If you rename `play-soundprint-backend` or `play-soundprint-frontend`, or attach a custom domain to either, update `CORS_ORIGINS` and `NEXT_PUBLIC_API_BASE_URL` in `render.yaml` (or directly in the dashboard) to match.
