@@ -169,9 +169,52 @@ def test_round_lifecycle_never_leaks_target_before_reveal(client):
     assert reveal.status_code == 200
     reveal_body = reveal.json()
     assert reveal_body["album_name"] == TARGET_ALBUM_NAME
-    assert reveal_body["revealed_metrics"] == ["danceability"]
+    # Only "danceability" was unlocked during play (wrong guess #2), but the
+    # reveal screen must show every metric regardless of what was unlocked.
+    assert reveal_body["revealed_metrics"] == [
+        "danceability",
+        "acousticness",
+        "instrumentalness",
+        "speechiness",
+        "loudness",
+        "key",
+    ]
     names_in_reveal = {track["name"] for track in reveal_body["tracks"]}
     assert names_in_reveal == set(SECRET_TRACK_NAMES)
+    for track in reveal_body["tracks"]:
+        assert track["danceability"] == 0.7
+        assert track["acousticness"] == 0.2
+        assert track["instrumentalness"] == 0.1
+        assert track["speechiness"] == 0.05
+        assert track["loudness"] == -6.0
+        assert track["key"] == 3
+        assert track["mode"] == 1
+
+
+@respx.mock
+@patch("app.game_service.random.shuffle", lambda seq: None)
+def test_give_up_with_no_wrong_guesses_still_reveals_all_metrics(client):
+    _setup(respx)
+
+    start_response = client.post("/api/game/rounds", json={"artist_name": "Test Artist"})
+    assert start_response.status_code == 200
+    round_id = start_response.json()["round_id"]
+
+    give_up = client.post(f"/api/game/rounds/{round_id}/reveal", params={"give_up": True})
+    assert give_up.status_code == 200
+    give_up_body = give_up.json()
+    assert give_up_body["revealed_metrics"] == [
+        "danceability",
+        "acousticness",
+        "instrumentalness",
+        "speechiness",
+        "loudness",
+        "key",
+    ]
+    for track in give_up_body["tracks"]:
+        assert track["danceability"] == 0.7
+        assert track["key"] == 3
+        assert track["mode"] == 1
 
 
 @respx.mock
